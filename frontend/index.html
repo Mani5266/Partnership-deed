@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeedForge - Partnership Deed Generator</title>
+  <meta name="description" content="Generate professional Partnership Deed documents instantly">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Serif+Display&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/main.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <!-- Skip to content for keyboard users -->
+  <a href="#mainContent" class="skip-link">Skip to main content</a>
+
+  <!-- Toast Notifications -->
+  <div id="toastContainer" class="toast-container" aria-live="assertive"></div>
+
+  <!-- ═══════════════════════ AUTH OVERLAY ═══════════════════════ -->
+  <div id="authOverlay" class="auth-overlay">
+    <div class="auth-split">
+      <!-- Left: Branding -->
+      <div class="auth-brand">
+        <div class="auth-brand-inner">
+          <div class="auth-brand-logo">
+            <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+              <rect width="40" height="40" rx="10" fill="#1a1a2e"/>
+              <path d="M12 28V12h6c4 0 6 2 6 5s-2 5-5 5h-3v6h-4zm4-9h2c1.5 0 2.5-.8 2.5-2s-1-2-2.5-2h-2v4z" fill="#e8d5b7"/>
+              <path d="M24 28V16h3.5v1.5c.8-1.2 2-1.8 3.5-1.8v3.5c-2 0-3.5.8-3.5 3V28H24z" fill="#e8d5b7" opacity="0.7"/>
+            </svg>
+            <span class="auth-brand-title">DeedForge</span>
+          </div>
+          <h1 class="auth-brand-heading">Partnership Deed<br>Generator</h1>
+          <p class="auth-brand-sub">Create legally structured partnership deeds in minutes. Professional documents, zero complexity.</p>
+          <ul class="auth-features">
+            <li><span class="check-icon">&#10003;</span> Legally structured clauses</li>
+            <li><span class="check-icon">&#10003;</span> Download as DOCX or PDF</li>
+            <li><span class="check-icon">&#10003;</span> Auto-save drafts</li>
+            <li><span class="check-icon">&#10003;</span> Secure & encrypted</li>
+          </ul>
+        </div>
+      </div>
+      <!-- Right: Auth Form -->
+      <div class="auth-form-panel">
+        <div class="auth-form-wrap">
+          <h2 class="auth-form-title">Welcome</h2>
+          <p class="auth-form-sub">Sign in to generate your partnership deed</p>
+
+          <div class="auth-tabs" role="tablist">
+            <button class="auth-tab active" role="tab" aria-selected="true" data-tab="login" id="tabLogin">Sign In</button>
+            <button class="auth-tab" role="tab" aria-selected="false" data-tab="signup" id="tabSignup">Sign Up</button>
+          </div>
+
+          <div id="authError" class="auth-error hidden" role="alert"></div>
+
+          <!-- Login Form -->
+          <form id="loginForm" class="auth-form" autocomplete="on">
+            <div class="field">
+              <label for="loginEmail">Email</label>
+              <input type="email" id="loginEmail" autocomplete="email" required placeholder="you@example.com">
+            </div>
+            <div class="field">
+              <label for="loginPass">Password</label>
+              <input type="password" id="loginPass" autocomplete="current-password" required placeholder="Enter password" minlength="6">
+            </div>
+            <button type="submit" class="btn btn-primary btn-full" id="loginBtn">Sign In</button>
+          </form>
+
+          <!-- Signup Form -->
+          <form id="signupForm" class="auth-form hidden" autocomplete="on">
+            <div class="field">
+              <label for="signupName">Full Name</label>
+              <input type="text" id="signupName" autocomplete="name" required placeholder="Your full name">
+            </div>
+            <div class="field">
+              <label for="signupEmail">Email</label>
+              <input type="email" id="signupEmail" autocomplete="email" required placeholder="you@example.com">
+            </div>
+            <div class="field">
+              <label for="signupPass">Password</label>
+              <input type="password" id="signupPass" autocomplete="new-password" required placeholder="Min 6 characters" minlength="6">
+            </div>
+            <button type="submit" class="btn btn-primary btn-full" id="signupBtn">Create Account</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════ APP SHELL ═══════════════════════ -->
+  <div id="appShell" class="app-shell hidden">
+    <!-- Mobile Header -->
+    <button class="hamburger" id="hamburger" aria-label="Open menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="mobile-backdrop hidden" id="mobileBackdrop"></div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-top">
+        <div class="sidebar-logo">
+          <svg width="28" height="28" viewBox="0 0 40 40" fill="none">
+            <rect width="40" height="40" rx="10" fill="#1a1a2e"/>
+            <path d="M12 28V12h6c4 0 6 2 6 5s-2 5-5 5h-3v6h-4zm4-9h2c1.5 0 2.5-.8 2.5-2s-1-2-2.5-2h-2v4z" fill="#e8d5b7"/>
+          </svg>
+          <span>DeedForge</span>
+        </div>
+        <button class="btn btn-accent btn-full sidebar-new-btn" id="newDeedBtn">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>
+          New Partnership Deed
+        </button>
+
+        <div class="sidebar-section-label">Recent Drafts</div>
+        <div id="draftList" class="draft-list">
+          <p class="draft-empty">No saved deeds yet</p>
+        </div>
+      </div>
+      <div class="sidebar-footer">
+        <div class="sidebar-nav">
+          <button class="sidebar-nav-btn active" data-page="generator" id="navGenerator">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            Generator
+          </button>
+          <button class="sidebar-nav-btn" data-page="history" id="navHistory">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            History
+          </button>
+        </div>
+        <div class="sidebar-user" id="sidebarUser">
+          <span class="sidebar-user-email" id="userEmail"></span>
+          <button class="btn-signout" id="signOutBtn" aria-label="Sign out">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="content" id="mainContent">
+      <!-- ─── Generator Page ─── -->
+      <div id="generatorPage" class="page">
+        <div class="page-header">
+          <h2 class="page-title">Partnership Deed</h2>
+          <p class="page-sub">Fill in the details below to generate your deed</p>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="progress-bar" data-step="0">
+          <div class="progress-fill"></div>
+        </div>
+
+        <!-- Step Tabs -->
+        <nav class="step-tabs" role="tablist" aria-label="Form steps">
+          <button class="step-tab active" role="tab" aria-selected="true" data-step="0">Partners</button>
+          <button class="step-tab" role="tab" aria-selected="false" data-step="1">Business</button>
+          <button class="step-tab" role="tab" aria-selected="false" data-step="2">Capital &amp; Profit</button>
+          <button class="step-tab" role="tab" aria-selected="false" data-step="3">Clauses</button>
+          <button class="step-tab" role="tab" aria-selected="false" data-step="4">Review &amp; Generate</button>
+        </nav>
+
+        <!-- Form Card -->
+        <div class="form-card" id="formCard">
+          <!-- ─── Step 0: Partner Details ─── -->
+          <div class="step-pane active" data-pane="0" role="tabpanel">
+            <h3 class="step-title">Partner Information</h3>
+
+            <!-- Partner count selector + Bulk Aadhaar upload -->
+            <div class="partner-toolbar">
+              <div class="partner-count-selector">
+                <label for="partnerCountInput">Number of Partners</label>
+                <div class="partner-count-controls">
+                  <button type="button" class="partner-count-btn" id="partnerCountMinus" aria-label="Decrease partners">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="3" y1="8" x2="13" y2="8"/></svg>
+                  </button>
+                  <input type="number" id="partnerCountInput" min="2" max="20" value="2" class="partner-count-input">
+                  <button type="button" class="partner-count-btn" id="partnerCountPlus" aria-label="Increase partners">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="bulk-aadhaar-upload">
+                <label class="btn-bulk-aadhaar" id="bulkAadhaarLabel" title="Upload Aadhaar cards for all partners at once">
+                  <input type="file" accept="image/*" multiple id="bulkAadhaarInput" hidden>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                  <span>Upload All Aadhaar Cards</span>
+                </label>
+                <div class="bulk-aadhaar-hint">Select multiple images to auto-fill all partners</div>
+              </div>
+            </div>
+
+            <!-- Bulk OCR progress -->
+            <div class="bulk-ocr-progress hidden" id="bulkOcrProgress">
+              <div class="ocr-progress">
+                <div class="spinner"></div>
+                <span class="ocr-progress-text" id="bulkOcrText">Processing Aadhaar cards...</span>
+              </div>
+              <div class="bulk-ocr-bar">
+                <div class="bulk-ocr-bar-fill" id="bulkOcrBarFill"></div>
+              </div>
+            </div>
+
+            <!-- Dynamic partner cards rendered by JS -->
+            <div id="partnersContainer"></div>
+
+            <button type="button" class="btn btn-add-partner" id="addPartnerBtn">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>
+              Add Partner
+            </button>
+
+            <div class="step-actions">
+              <span></span>
+              <button class="btn btn-next" data-goto="1">Next: Business Details</button>
+            </div>
+          </div>
+
+          <!-- ─── Step 1: Business Details ─── -->
+          <div class="step-pane" data-pane="1" role="tabpanel">
+            <h3 class="step-title">Business Information</h3>
+            <div class="form-grid">
+              <div class="field">
+                <label for="businessName">Business Name (M/s.) <span class="req">*</span></label>
+                <input type="text" id="businessName" required placeholder="e.g. TechSoft Solutions">
+              </div>
+              <div class="field">
+                <label for="deedDate">Date of Deed <span class="req">*</span></label>
+                <input type="date" id="deedDate" required>
+              </div>
+              <div class="field full-width">
+                <label for="natureOfBusiness">Nature of Business</label>
+                <input type="text" id="natureOfBusiness" placeholder="e.g. Software Development and IT Consulting">
+              </div>
+              <div class="field full-width">
+                <label for="registeredAddress">Registered Place of Business <span class="req">*</span></label>
+                <textarea id="registeredAddress" rows="2" required placeholder="Complete registered address of the firm"></textarea>
+              </div>
+              <div class="field full-width">
+                <label for="businessObjectives">Detailed Business Objectives</label>
+                <textarea id="businessObjectives" rows="4" placeholder="Describe the detailed objectives of the business..."></textarea>
+              </div>
+            </div>
+
+            <div class="step-actions">
+              <button class="btn btn-back" data-goto="0">Back</button>
+              <button class="btn btn-next" data-goto="2">Next: Capital &amp; Profit</button>
+            </div>
+          </div>
+
+          <!-- ─── Step 2: Capital & Profit Sharing ─── -->
+          <div class="step-pane" data-pane="2" role="tabpanel">
+            <h3 class="step-title">Capital Contribution &amp; Profit Sharing</h3>
+
+            <div class="form-section-label">Capital Contribution (%)</div>
+            <div class="form-grid" id="capitalContainer">
+              <!-- Dynamically rendered by JS -->
+            </div>
+            <div class="field-hint" id="capitalHint">Capital contributions should total 100%</div>
+
+            <div class="form-divider"></div>
+
+            <div class="profit-same-toggle">
+              <label class="toggle-label">
+                <input type="checkbox" id="profitSameAsCapital">
+                <span class="toggle-text">Profit / Loss sharing is same as Capital Contribution</span>
+              </label>
+            </div>
+
+            <div class="form-section-label">Profit / Loss Sharing (%)</div>
+            <div class="form-grid" id="profitContainer">
+              <!-- Dynamically rendered by JS -->
+            </div>
+            <div class="field-hint" id="profitHint">Profit/loss sharing should total 100%</div>
+
+            <div class="step-actions">
+              <button class="btn btn-back" data-goto="1">Back</button>
+              <button class="btn btn-next" data-goto="3">Next: Clauses</button>
+            </div>
+          </div>
+
+          <!-- ─── Step 3: Additional Clauses ─── -->
+          <div class="step-pane" data-pane="3" role="tabpanel">
+            <h3 class="step-title">Additional Terms &amp; Clauses</h3>
+            <div class="form-grid">
+              <div class="field">
+                <label for="bankOperation">Bank Account Operation</label>
+                <select id="bankOperation">
+                  <option value="jointly">Jointly (Both signatures required)</option>
+                  <option value="either">Either partner independently</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="interestRate">Interest Rate on Capital (% p.a.)</label>
+                <input type="text" id="interestRate" value="12" placeholder="e.g. 12">
+              </div>
+              <div class="field">
+                <label for="noticePeriod">Retirement Notice Period (months)</label>
+                <input type="text" id="noticePeriod" value="3" placeholder="e.g. 3">
+              </div>
+              <div class="field">
+                <label for="accountingYear">Accounting Year Closing Date</label>
+                <input type="text" id="accountingYear" value="31st March" placeholder="e.g. 31st March">
+              </div>
+              <div class="field full-width">
+                <label for="additionalPoints">Any Additional Terms / Points</label>
+                <textarea id="additionalPoints" rows="4" placeholder="Add any custom clauses or additional terms here..."></textarea>
+              </div>
+            </div>
+
+            <div class="step-actions">
+              <button class="btn btn-back" data-goto="2">Back</button>
+              <button class="btn btn-next" data-goto="4">Next: Review</button>
+            </div>
+          </div>
+
+          <!-- ─── Step 4: Review & Generate ─── -->
+          <div class="step-pane" data-pane="4" role="tabpanel">
+            <h3 class="step-title">Review &amp; Generate</h3>
+            <p class="step-sub">Please review all details before generating your Partnership Deed.</p>
+
+            <div class="review-grid" id="reviewGrid">
+              <!-- Populated by JS -->
+            </div>
+
+            <div class="generate-actions">
+              <button class="btn btn-back" data-goto="3">Back to Edit</button>
+              <button class="btn btn-gen" id="generateBtn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Generate DOCX
+              </button>
+              <button class="btn btn-pdf hidden" id="pdfBtn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                Save as PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── History Page ─── -->
+      <div id="historyPage" class="page hidden">
+        <div class="page-header">
+          <h2 class="page-title">Deed History</h2>
+          <p class="page-sub">View and manage your previously generated deeds</p>
+        </div>
+        <div class="deed-grid" id="deedGrid">
+          <p class="grid-empty" id="gridEmpty">No partnership deeds generated yet. Create your first deed to get started.</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ═══════════════════════ DETAIL MODAL ═══════════════════════ -->
+  <div id="detailModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modalTitle" class="modal-title">Deed Details</h3>
+        <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody">
+        <!-- Populated by JS -->
+      </div>
+      <div class="modal-footer" id="modalFooter">
+        <button class="btn btn-back" id="modalCloseBtn">Close</button>
+        <button class="btn btn-del" id="modalDeleteBtn">Delete</button>
+        <button class="btn btn-edit" id="modalEditBtn">Edit</button>
+        <button class="btn btn-dup" id="modalDupBtn">Duplicate</button>
+        <button class="btn btn-download" id="modalDownloadBtn">Download</button>
+        <button class="btn btn-gen" id="modalRegenBtn">Re-generate</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
