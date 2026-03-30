@@ -202,6 +202,17 @@
               </div>
             </div>
 
+            <!-- Partner Roles Checklist (Managing Partner / Bank Authorization) -->
+            <div class="partner-roles-checklist" id="partnerRolesChecklist">
+              <div class="partner-roles-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6"/><path d="M23 11h-6"/></svg>
+                <span>Partner Roles &amp; Authorizations</span>
+              </div>
+              <div class="partner-roles-body" id="partnerRolesBody">
+                <!-- Dynamically populated by JS -->
+              </div>
+            </div>
+
             <!-- Dynamic partner cards rendered by JS -->
             <div id="partnersContainer"></div>
 
@@ -222,7 +233,23 @@
             <div class="form-grid">
               <div class="field">
                 <label for="businessName">Business Name (M/s.) <span class="req">*</span></label>
-                <input type="text" id="businessName" required placeholder="e.g. TechSoft Solutions">
+                <div class="business-name-row">
+                  <input type="text" id="businessName" required placeholder="e.g. TechSoft Solutions">
+                  <button type="button" class="btn btn-suggest-names" id="suggestNamesBtn" title="Get AI-powered business name suggestions based on Nature of Business">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                    <span>Suggest Names</span>
+                  </button>
+                </div>
+                <!-- AI name suggestion progress -->
+                <div class="name-suggest-progress hidden" id="nameSuggestProgress">
+                  <div class="spinner-small"></div>
+                  <span>Generating name suggestions...</span>
+                </div>
+                <!-- AI name suggestion chips -->
+                <div class="name-suggest-container hidden" id="nameSuggestContainer">
+                  <p class="name-suggest-label">Click a suggestion to use it, or type your own:</p>
+                  <div class="name-suggest-chips" id="nameSuggestChips"></div>
+                </div>
               </div>
               <div class="field">
                 <label for="deedDate">Date of Deed <span class="req">*</span></label>
@@ -232,13 +259,90 @@
                 <label for="natureOfBusiness">Nature of Business</label>
                 <input type="text" id="natureOfBusiness" placeholder="e.g. Software Development and IT Consulting">
               </div>
-              <div class="field full-width">
-                <label for="registeredAddress">Registered Place of Business <span class="req">*</span></label>
-                <textarea id="registeredAddress" rows="2" required placeholder="Complete registered address of the firm"></textarea>
+              <!-- Registered Place of Business (Structured Address) -->
+              <div class="field full-width address-section">
+                <label>Registered Place of Business <span class="req">*</span></label>
+                <p class="field-hint address-hint">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 4px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                  The address must match the address on the Electricity Bill of the business premises.
+                </p>
+                <div class="address-grid">
+                  <div class="field">
+                    <label for="addrDoorNo">Door No / Plot No <span class="req">*</span></label>
+                    <input type="text" id="addrDoorNo" required placeholder="e.g. Plot Nos. 13, 14 Eastern Part">
+                  </div>
+                  <div class="field">
+                    <label for="addrArea">Area / Locality / Landmark <span class="req">*</span></label>
+                    <input type="text" id="addrArea" required placeholder="e.g. Karmanghat, Saroornagar, L.B Nagar Circle">
+                  </div>
+                  <div class="field">
+                    <label for="addrBuildingName">Building / Premises Name</label>
+                    <input type="text" id="addrBuildingName" placeholder="e.g. JR PINNACLE">
+                  </div>
+                  <div class="field">
+                    <label for="addrDistrict">District <span class="req">*</span></label>
+                    <input type="text" id="addrDistrict" required placeholder="e.g. Ranga Reddy">
+                  </div>
+                  <div class="field">
+                    <label for="addrState">State <span class="req">*</span></label>
+                    <input type="text" id="addrState" required placeholder="e.g. Telangana">
+                  </div>
+                  <div class="field">
+                    <label for="addrPincode">Pincode <span class="req">*</span></label>
+                    <input type="text" id="addrPincode" required placeholder="e.g. 500079" maxlength="6" pattern="[0-9]{6}" inputmode="numeric">
+                  </div>
+                </div>
+                <!-- Hidden combined address field (auto-composed from sub-fields) -->
+                <input type="hidden" id="registeredAddress">
               </div>
-              <div class="field full-width">
-                <label for="businessObjectives">Detailed Business Objectives</label>
-                <textarea id="businessObjectives" rows="4" placeholder="Describe the detailed objectives of the business..."></textarea>
+
+              <!-- Duration of Partnership -->
+              <div class="field">
+                <label for="partnershipDuration">Duration of Partnership <span class="req">*</span></label>
+                <select id="partnershipDuration" required>
+                  <option value="at_will">At Will of the Partners</option>
+                  <option value="fixed">Fixed Duration</option>
+                </select>
+              </div>
+              <div class="field" id="durationPlaceholder">
+                <!-- Empty placeholder to keep grid alignment when "At Will" is selected -->
+              </div>
+              <div class="field duration-dates hidden" id="durationDatesRow1">
+                <label for="partnershipStartDate">Partnership Start Date <span class="req">*</span></label>
+                <input type="date" id="partnershipStartDate" placeholder="Start date">
+              </div>
+              <div class="field duration-dates hidden" id="durationDatesRow2">
+                <label for="partnershipEndDate">Partnership End Date <span class="req">*</span></label>
+                <input type="date" id="partnershipEndDate" placeholder="End date">
+              </div>
+
+              <!-- AI Business Objective Generator -->
+              <div class="field full-width objective-section">
+                <label for="businessDescriptionInput">Describe Your Business</label>
+                <p class="field-hint objective-hint">Tell us what your business does in your own words. Our AI will convert it into a formal legal objective for your deed.</p>
+                <div class="objective-input-row">
+                  <textarea id="businessDescriptionInput" rows="2" placeholder="e.g. We sell clothes and textiles, both online and in our shop" maxlength="1000"></textarea>
+                  <button type="button" class="btn btn-generate-objective" id="generateObjectiveBtn" title="Generate formal business objective using AI">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                    <span>Generate</span>
+                  </button>
+                </div>
+                <!-- AI generation progress -->
+                <div class="objective-progress hidden" id="objectiveProgress">
+                  <div class="spinner-small"></div>
+                  <span>Generating formal business objective...</span>
+                </div>
+                <!-- Generated output (editable) -->
+                <div class="objective-output hidden" id="objectiveOutput">
+                  <label for="businessObjectives">Generated Business Objective <span class="objective-editable-tag">Editable</span></label>
+                  <textarea id="businessObjectives" rows="4" placeholder="The AI-generated objective will appear here. You can edit it before proceeding."></textarea>
+                  <div class="objective-actions">
+                    <button type="button" class="btn-objective-action btn-regenerate" id="regenerateObjectiveBtn" title="Re-generate with AI">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg>
+                      Re-generate
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 

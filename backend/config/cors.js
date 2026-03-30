@@ -4,6 +4,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 const allowedOrigins = [
   'https://partnership-deed-generator.vercel.app',
+  'https://partnership-deed.vercel.app',
   ...(!isProduction ? [
     'http://localhost:3003',
     'http://localhost:5500',

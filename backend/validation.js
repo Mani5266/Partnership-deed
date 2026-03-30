@@ -84,7 +84,8 @@ const generatePayloadSchema = z.object({
   // Business details
   businessName: z.string().min(1, 'Business name is required').max(300),
   natureOfBusiness: z.string().max(500).optional().default(''),
-  businessObjectives: z.string().max(2000).optional().default(''),
+  businessObjectives: z.string().max(5000).optional().default(''),
+  businessDescriptionInput: z.string().max(1000).optional().default(''),
   registeredAddress: z.string().min(1, 'Registered address is required').max(500),
 
   // Banking

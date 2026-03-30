@@ -13,8 +13,8 @@ const MIN_PARTNERS = 2;
 const MAX_PARTNERS = 20;
 
 let partners = [
-  { name: '', relation: 'S/O', fatherName: '', age: '', address: '' },
-  { name: '', relation: 'S/O', fatherName: '', age: '', address: '' },
+  { name: '', relation: 'S/O', fatherName: '', age: '', address: '', isManagingPartner: false, isBankAuthorized: false },
+  { name: '', relation: 'S/O', fatherName: '', age: '', address: '', isManagingPartner: false, isBankAuthorized: false },
 ];
 
 // Ordinal labels for parties
@@ -274,6 +274,69 @@ function syncPartnersFromDOM() {
       partners[i].address = card.querySelector(`[data-field="address"]`)?.value?.trim() || '';
     }
   });
+  // Read role checkboxes from shared checklist
+  const rolesBody = document.getElementById('partnerRolesBody');
+  if (rolesBody) {
+    rolesBody.querySelectorAll('.partner-role-row').forEach((row, i) => {
+      if (partners[i]) {
+        partners[i].isManagingPartner = row.querySelector(`[data-role="isManagingPartner"]`)?.checked || false;
+        partners[i].isBankAuthorized = row.querySelector(`[data-role="isBankAuthorized"]`)?.checked || false;
+      }
+    });
+  }
+}
+
+function renderPartnerRoles() {
+  const body = document.getElementById('partnerRolesBody');
+  if (!body) return;
+
+  body.innerHTML = partners.map((p, i) => {
+    const displayName = p.name?.trim() || `Partner ${i + 1}`;
+    return `
+      <div class="partner-role-row" data-role-index="${i}">
+        <div class="partner-role-name">
+          <span class="partner-role-ordinal">${getPartyLabel(i)}</span>
+          <span class="partner-role-display-name">${escapeHTML(displayName)}</span>
+        </div>
+        <div class="partner-role-checks">
+          <label class="partner-role-toggle" title="Managing Partner of the firm">
+            <input type="checkbox" data-role="isManagingPartner" ${p.isManagingPartner ? 'checked' : ''}>
+            <svg class="role-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6"/><path d="M23 11h-6"/></svg>
+            <span>Managing Partner</span>
+          </label>
+          <label class="partner-role-toggle" title="Authorized for bank transactions">
+            <input type="checkbox" data-role="isBankAuthorized" ${p.isBankAuthorized ? 'checked' : ''}>
+            <svg class="role-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v4"/><path d="M12 14v4"/><path d="M16 14v4"/></svg>
+            <span>Bank Authorization</span>
+          </label>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Bind change events on role checkboxes
+  body.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      syncPartnersFromDOM();
+      saveDraft();
+      debouncedServerSave();
+    });
+  });
+}
+
+// Update partner display names in the roles checklist when name fields change
+function updatePartnerRoleNames() {
+  const body = document.getElementById('partnerRolesBody');
+  if (!body) return;
+  const rows = body.querySelectorAll('.partner-role-row');
+  rows.forEach((row, i) => {
+    if (partners[i]) {
+      const nameEl = row.querySelector('.partner-role-display-name');
+      if (nameEl) {
+        nameEl.textContent = partners[i].name?.trim() || `Partner ${i + 1}`;
+      }
+    }
+  });
 }
 
 function renderPartners() {
@@ -356,6 +419,9 @@ function renderPartners() {
 
   // Keep count input in sync
   updatePartnerCountInput();
+
+  // Render shared roles checklist
+  renderPartnerRoles();
 }
 
 function bindPartnerEvents() {
@@ -383,8 +449,13 @@ function bindPartnerEvents() {
 
   // Input change listeners for auto-save
   container.querySelectorAll('input, select, textarea').forEach(el => {
-    el.addEventListener('input', () => {
+    const eventType = el.type === 'checkbox' ? 'change' : 'input';
+    el.addEventListener(eventType, () => {
       syncPartnersFromDOM();
+      // Update partner names in the shared roles checklist
+      if (el.dataset.field === 'name') {
+        updatePartnerRoleNames();
+      }
       // Clear field error on edit
       const fieldWrap = el.closest('.field');
       if (fieldWrap && fieldWrap.classList.contains('error')) {
@@ -404,7 +475,7 @@ function addPartner() {
     return;
   }
   syncPartnersFromDOM();
-  partners.push({ name: '', relation: 'S/O', fatherName: '', age: '', address: '' });
+  partners.push({ name: '', relation: 'S/O', fatherName: '', age: '', address: '', isManagingPartner: false, isBankAuthorized: false });
   renderPartners();
   updatePartnerCountInput();
   saveDraft();
@@ -451,7 +522,7 @@ function setPartnerCount(count) {
   if (count > partners.length) {
     // Add new empty partners
     while (partners.length < count) {
-      partners.push({ name: '', relation: 'S/O', fatherName: '', age: '', address: '' });
+      partners.push({ name: '', relation: 'S/O', fatherName: '', age: '', address: '', isManagingPartner: false, isBankAuthorized: false });
     }
   } else {
     // Remove partners from the end (warn if they have data)
@@ -525,7 +596,7 @@ async function processBulkAadhaarOCR(files) {
     }
     const targetCount = Math.min(fileCount, MAX_PARTNERS);
     while (partners.length < targetCount) {
-      partners.push({ name: '', relation: 'S/O', fatherName: '', age: '', address: '' });
+      partners.push({ name: '', relation: 'S/O', fatherName: '', age: '', address: '', isManagingPartner: false, isBankAuthorized: false });
     }
     renderPartners();
     updatePartnerCountInput();
@@ -605,6 +676,7 @@ async function processBulkAadhaarOCR(files) {
 
   // Sync all data to state
   syncPartnersFromDOM();
+  updatePartnerRoleNames();
   saveDraft();
   debouncedServerSave();
 
@@ -655,6 +727,7 @@ async function processAadhaarOCR(file, partnerIndex) {
 
     // Sync to state
     syncPartnersFromDOM();
+    updatePartnerRoleNames();
     saveDraft();
     debouncedServerSave();
 
@@ -733,6 +806,235 @@ function applyExtractedToCard(partnerIndex, extracted) {
   }
 
   return missingFields;
+}
+
+// ── AI BUSINESS OBJECTIVE GENERATION ────────────────────────────────────────
+
+async function generateBusinessObjective() {
+  const descInput = document.getElementById('businessDescriptionInput');
+  const genBtn = document.getElementById('generateObjectiveBtn');
+  const regenBtn = document.getElementById('regenerateObjectiveBtn');
+  const progressEl = document.getElementById('objectiveProgress');
+  const outputEl = document.getElementById('objectiveOutput');
+  const objectiveTextarea = document.getElementById('businessObjectives');
+
+  if (!descInput) return;
+
+  const description = descInput.value.trim();
+  if (!description || description.length < 3) {
+    showAlert('warning', 'Please describe your business in at least a few words before generating.');
+    descInput.focus();
+    return;
+  }
+
+  // Disable buttons & show progress
+  if (genBtn) genBtn.disabled = true;
+  if (regenBtn) regenBtn.disabled = true;
+  if (progressEl) progressEl.classList.remove('hidden');
+
+  try {
+    const response = await fetch('/api/generate-objective', {
+      method: 'POST',
+      headers: await getAuthHeaders(),
+      body: JSON.stringify({ description }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || `Request failed (${response.status})`);
+    }
+
+    // Show the output section and populate
+    if (objectiveTextarea) objectiveTextarea.value = result.objective;
+    if (outputEl) outputEl.classList.remove('hidden');
+
+    showAlert('success', 'Business objective generated. Review and edit if needed.');
+
+    // Trigger auto-save
+    saveDraft();
+    debouncedServerSave();
+
+  } catch (err) {
+    console.error('Business objective generation error:', err);
+    showAlert('error', `Failed to generate: ${err?.message || 'Unknown error'}`);
+  } finally {
+    if (genBtn) genBtn.disabled = false;
+    if (regenBtn) regenBtn.disabled = false;
+    if (progressEl) progressEl.classList.add('hidden');
+  }
+}
+
+// ── AI BUSINESS NAME SUGGESTIONS ────────────────────────────────────────────
+
+async function suggestBusinessNames() {
+  const natureInput = document.getElementById('natureOfBusiness');
+  const suggestBtn = document.getElementById('suggestNamesBtn');
+  const progressEl = document.getElementById('nameSuggestProgress');
+  const containerEl = document.getElementById('nameSuggestContainer');
+  const chipsEl = document.getElementById('nameSuggestChips');
+  const businessNameInput = document.getElementById('businessName');
+
+  if (!natureInput) return;
+
+  const natureOfBusiness = natureInput.value.trim();
+  if (!natureOfBusiness || natureOfBusiness.length < 3) {
+    showAlert('warning', 'Please enter the Nature of Business first so we can suggest relevant names.');
+    natureInput.focus();
+    return;
+  }
+
+  // Disable button & show progress
+  if (suggestBtn) suggestBtn.disabled = true;
+  if (progressEl) progressEl.classList.remove('hidden');
+  if (containerEl) containerEl.classList.add('hidden');
+
+  try {
+    const response = await fetch('/api/suggest-business-names', {
+      method: 'POST',
+      headers: await getAuthHeaders(),
+      body: JSON.stringify({ natureOfBusiness }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || `Request failed (${response.status})`);
+    }
+
+    const names = result.names;
+    if (!Array.isArray(names) || names.length === 0) {
+      throw new Error('No suggestions returned.');
+    }
+
+    // Render chips
+    if (chipsEl) {
+      chipsEl.innerHTML = names.map(name => {
+        const escaped = escapeHTML(name);
+        return `<button type="button" class="name-chip" data-name="${escaped}" title="Click to use: ${escaped}">${escaped}</button>`;
+      }).join('');
+
+      // Bind click handlers
+      chipsEl.querySelectorAll('.name-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          // Remove selected from all chips
+          chipsEl.querySelectorAll('.name-chip').forEach(c => c.classList.remove('selected'));
+          // Mark this one selected
+          chip.classList.add('selected');
+          // Set the business name input
+          if (businessNameInput) {
+            businessNameInput.value = chip.dataset.name;
+            // Trigger save
+            saveDraft();
+            debouncedServerSave();
+          }
+          showAlert('success', `Business name set to "${chip.dataset.name}". You can still edit it manually.`);
+        });
+      });
+
+      // Highlight current businessName if it matches a chip
+      const currentName = businessNameInput?.value.trim();
+      if (currentName) {
+        chipsEl.querySelectorAll('.name-chip').forEach(chip => {
+          if (chip.dataset.name === currentName) chip.classList.add('selected');
+        });
+      }
+    }
+
+    if (containerEl) containerEl.classList.remove('hidden');
+    showAlert('success', 'Name suggestions ready. Click one to use it!');
+
+  } catch (err) {
+    console.error('Business name suggestion error:', err);
+    showAlert('error', `Failed to suggest names: ${err?.message || 'Unknown error'}`);
+  } finally {
+    if (suggestBtn) suggestBtn.disabled = false;
+    if (progressEl) progressEl.classList.add('hidden');
+  }
+}
+
+// ── STRUCTURED ADDRESS COMPOSITION ──────────────────────────────────────────
+
+const ADDRESS_FIELDS = ['addrDoorNo', 'addrBuildingName', 'addrArea', 'addrDistrict', 'addrState', 'addrPincode'];
+
+/**
+ * Compose the full registered address from structured sub-fields.
+ * Format: "{BuildingName}, {DoorNo}, {Area}, {District}, {State}, India-{Pincode}"
+ * Mirrors: "JR PINNACLE, Plot Nos.13, 14 Eastern Part Karmanghat, Saroornagar, L.B Nagar Circle, Ranga Reddy, Telangana, India-500079"
+ */
+function composeAddress() {
+  const building = v('addrBuildingName');
+  const door = v('addrDoorNo');
+  const area = v('addrArea');
+  const district = v('addrDistrict');
+  const state = v('addrState');
+  const pincode = v('addrPincode');
+
+  const parts = [];
+  if (building) parts.push(building);
+  if (door) parts.push(door);
+  if (area) parts.push(area);
+  if (district) parts.push(district);
+  if (state) parts.push(state);
+  if (pincode) {
+    parts.push(`India-${pincode}`);
+  } else {
+    parts.push('India');
+  }
+
+  const combined = parts.join(', ');
+  const hiddenEl = document.getElementById('registeredAddress');
+  if (hiddenEl) hiddenEl.value = combined;
+  return combined;
+}
+
+/**
+ * Decompose a combined address string into structured sub-fields.
+ * Used for backward compatibility when loading old deeds that stored a single string.
+ */
+function decomposeAddress(fullAddress) {
+  if (!fullAddress) return;
+
+  // Check if structured sub-fields are already stored in the payload
+  // (they will be, for new deeds). If not, put the whole string into Area as fallback.
+  const doorEl = document.getElementById('addrDoorNo');
+  const areaEl = document.getElementById('addrArea');
+
+  // If the sub-fields already have data (restored by the normal field-by-id loop), skip
+  if (doorEl && doorEl.value.trim()) return;
+  if (areaEl && areaEl.value.trim()) return;
+
+  // Fallback: put the entire old address into the Area field for manual correction
+  if (areaEl) areaEl.value = fullAddress;
+}
+
+// ── PARTNERSHIP DURATION TOGGLE ─────────────────────────────────────────────
+
+function toggleDurationFields() {
+  const durationSelect = document.getElementById('partnershipDuration');
+  const datesRow1 = document.getElementById('durationDatesRow1');
+  const datesRow2 = document.getElementById('durationDatesRow2');
+  const placeholder = document.getElementById('durationPlaceholder');
+  const startDate = document.getElementById('partnershipStartDate');
+  const endDate = document.getElementById('partnershipEndDate');
+
+  if (!durationSelect) return;
+
+  const isFixed = durationSelect.value === 'fixed';
+
+  if (isFixed) {
+    if (datesRow1) datesRow1.classList.remove('hidden');
+    if (datesRow2) datesRow2.classList.remove('hidden');
+    if (placeholder) placeholder.classList.add('hidden');
+    if (startDate) startDate.required = true;
+    if (endDate) endDate.required = true;
+  } else {
+    if (datesRow1) datesRow1.classList.add('hidden');
+    if (datesRow2) datesRow2.classList.add('hidden');
+    if (placeholder) placeholder.classList.remove('hidden');
+    if (startDate) { startDate.required = false; startDate.value = ''; }
+    if (endDate) { endDate.required = false; endDate.value = ''; }
+  }
 }
 
 // ── DYNAMIC CAPITAL & PROFIT RENDERING ──────────────────────────────────────
@@ -831,11 +1133,15 @@ function setProfitFieldsDisabled(disabled) {
 
 function buildReview() {
   syncPartnersFromDOM();
+  composeAddress(); // Ensure the combined address is up-to-date
 
   const sections = [];
 
   // Partner sections
   partners.forEach((p, i) => {
+    const roles = [];
+    if (p.isManagingPartner) roles.push('Managing Partner');
+    if (p.isBankAuthorized) roles.push('Bank Authorized');
     sections.push({
       title: `Partner ${i + 1} (${getPartyLabel(i)} Party)`,
       rows: [
@@ -843,19 +1149,33 @@ function buildReview() {
         ['Relation', `${p.relation || 'S/O'} ${p.fatherName || ''}`],
         ['Age', p.age ? `${p.age} years` : ''],
         ['Address', p.address || ''],
+        ['Roles', roles.length > 0 ? roles.join(', ') : 'None assigned'],
       ]
     });
   });
 
   // Business details
+  const durationVal = v('partnershipDuration');
+  let durationDisplay = 'At Will of the Partners';
+  if (durationVal === 'fixed') {
+    const start = fmtDate(v('partnershipStartDate'));
+    const end = fmtDate(v('partnershipEndDate'));
+    durationDisplay = `Fixed Duration: ${start || '—'} to ${end || '—'}`;
+  }
+  const bizRows = [
+    ['Business Name', `M/s. ${v('businessName')}`],
+    ['Date of Deed', fmtDate(v('deedDate'))],
+    ['Duration', durationDisplay],
+    ['Nature', v('natureOfBusiness')],
+    ['Registered Address', v('registeredAddress')],
+  ];
+  const objVal = v('businessObjectives');
+  if (objVal) {
+    bizRows.push(['Business Objective', objVal.length > 120 ? objVal.substring(0, 120) + '...' : objVal]);
+  }
   sections.push({
     title: 'Business Details',
-    rows: [
-      ['Business Name', `M/s. ${v('businessName')}`],
-      ['Date of Deed', fmtDate(v('deedDate'))],
-      ['Nature', v('natureOfBusiness')],
-      ['Registered Address', v('registeredAddress')],
-    ]
+    rows: bizRows,
   });
 
   // Capital & Profit
@@ -876,9 +1196,21 @@ function buildReview() {
     rows: profitRows,
   });
 
+  // Managing Partners & Bank Authorization summary
+  const managingNames = partners
+    .filter(p => p.isManagingPartner)
+    .map(p => p.name || 'Unnamed')
+    .join(', ');
+  const bankAuthNames = partners
+    .filter(p => p.isBankAuthorized)
+    .map(p => p.name || 'Unnamed')
+    .join(', ');
+
   sections.push({
     title: 'Clauses',
     rows: [
+      ['Managing Partner(s)', managingNames || 'None selected'],
+      ['Bank Authorized Partner(s)', bankAuthNames || 'None selected'],
       ['Bank Operation', v('bankOperation') === 'either' ? 'Either partner independently' : 'Jointly'],
       ['Interest Rate', `${v('interestRate') || '12'}% p.a.`],
       ['Notice Period', `${v('noticePeriod') || '3'} months`],
@@ -917,17 +1249,67 @@ function validate() {
     }
   });
 
+  // At least one managing partner must be selected
+  const hasManagingPartner = partners.some(p => p.isManagingPartner);
+  if (!hasManagingPartner) {
+    errors.push({ step: 0, label: 'Managing Partner (select at least one)' });
+  }
+
+  // At least one bank authorized partner must be selected
+  const hasBankAuth = partners.some(p => p.isBankAuthorized);
+  if (!hasBankAuth) {
+    errors.push({ step: 0, label: 'Bank Authorization (select at least one)' });
+  }
+
   // Business fields
   const businessRequired = [
     { id: 'businessName', label: 'Business Name' },
     { id: 'deedDate', label: 'Date of Deed' },
-    { id: 'registeredAddress', label: 'Registered Address' },
   ];
 
   for (const { id, label } of businessRequired) {
     if (!v(id)) {
       errors.push({ step: 1, fieldId: id, label });
       markFieldError(id, `${label} is required`);
+    }
+  }
+
+  // Address sub-fields validation
+  const addressRequired = [
+    { id: 'addrDoorNo', label: 'Door No / Plot No' },
+    { id: 'addrArea', label: 'Area / Locality' },
+    { id: 'addrDistrict', label: 'District' },
+    { id: 'addrState', label: 'State' },
+    { id: 'addrPincode', label: 'Pincode' },
+  ];
+
+  for (const { id, label } of addressRequired) {
+    if (!v(id)) {
+      errors.push({ step: 1, fieldId: id, label });
+      markFieldError(id, `${label} is required`);
+    }
+  }
+
+  // Pincode format validation
+  const pincodeVal = v('addrPincode');
+  if (pincodeVal && !/^[0-9]{6}$/.test(pincodeVal)) {
+    errors.push({ step: 1, fieldId: 'addrPincode', label: 'Pincode' });
+    markFieldError('addrPincode', 'Pincode must be exactly 6 digits');
+  }
+
+  // Fixed duration date validation
+  if (v('partnershipDuration') === 'fixed') {
+    if (!v('partnershipStartDate')) {
+      errors.push({ step: 1, fieldId: 'partnershipStartDate', label: 'Partnership Start Date' });
+      markFieldError('partnershipStartDate', 'Start date is required for fixed duration');
+    }
+    if (!v('partnershipEndDate')) {
+      errors.push({ step: 1, fieldId: 'partnershipEndDate', label: 'Partnership End Date' });
+      markFieldError('partnershipEndDate', 'End date is required for fixed duration');
+    }
+    if (v('partnershipStartDate') && v('partnershipEndDate') && v('partnershipStartDate') >= v('partnershipEndDate')) {
+      errors.push({ step: 1, fieldId: 'partnershipEndDate', label: 'Partnership End Date' });
+      markFieldError('partnershipEndDate', 'End date must be after start date');
     }
   }
 
@@ -1082,7 +1464,15 @@ function loadDraft() {
 
     // Restore partners array
     if (parsed.partners && Array.isArray(parsed.partners) && parsed.partners.length >= MIN_PARTNERS) {
-      partners = parsed.partners;
+      partners = parsed.partners.map(p => ({
+        name: p.name || '',
+        relation: p.relation || 'S/O',
+        fatherName: p.fatherName || '',
+        age: p.age || '',
+        address: p.address || '',
+        isManagingPartner: !!p.isManagingPartner,
+        isBankAuthorized: !!p.isBankAuthorized,
+      }));
     }
 
     renderPartners();
@@ -1106,6 +1496,23 @@ function loadDraft() {
       setProfitFieldsDisabled(true);
     }
 
+    // Backward compat: if old draft had registeredAddress but no sub-fields, decompose
+    if (data.registeredAddress && !data.addrDoorNo) {
+      decomposeAddress(data.registeredAddress);
+    }
+    // Recompose the hidden field from whatever sub-fields are now present
+    composeAddress();
+
+    // Show objective output section if businessObjectives has content
+    const objOutput = document.getElementById('objectiveOutput');
+    const objTextarea = document.getElementById('businessObjectives');
+    if (objOutput && objTextarea && objTextarea.value.trim()) {
+      objOutput.classList.remove('hidden');
+    }
+
+    // Restore duration field visibility
+    toggleDurationFields();
+
     updateCapitalHint();
     updateProfitHint();
     goTo(parsed.currentStep || 0);
@@ -1122,8 +1529,8 @@ function resetForm() {
 
   currentDeedId = null;
   partners = [
-    { name: '', relation: 'S/O', fatherName: '', age: '', address: '' },
-    { name: '', relation: 'S/O', fatherName: '', age: '', address: '' },
+    { name: '', relation: 'S/O', fatherName: '', age: '', address: '', isManagingPartner: false, isBankAuthorized: false },
+    { name: '', relation: 'S/O', fatherName: '', age: '', address: '', isManagingPartner: false, isBankAuthorized: false },
   ];
   renderPartners();
   renderCapitalProfit();
@@ -1152,6 +1559,19 @@ function resetForm() {
 
   // Re-enable profit fields (in case "same as capital" was checked)
   setProfitFieldsDisabled(false);
+
+  // Hide the AI objective output section
+  const objOutput = document.getElementById('objectiveOutput');
+  if (objOutput) objOutput.classList.add('hidden');
+
+  // Hide the AI name suggestions
+  const nameSuggestContainer = document.getElementById('nameSuggestContainer');
+  if (nameSuggestContainer) nameSuggestContainer.classList.add('hidden');
+  const nameSuggestChips = document.getElementById('nameSuggestChips');
+  if (nameSuggestChips) nameSuggestChips.innerHTML = '';
+
+  // Reset duration fields (select already reset to index 0 = "at_will" above)
+  toggleDurationFields();
 
   // Clear any field-level error styling
   document.querySelectorAll('.field.error').forEach(f => {
@@ -1283,6 +1703,9 @@ async function fetchSidebarDrafts() {
 function getPayload() {
   syncPartnersFromDOM();
 
+  // Ensure the combined address is up-to-date from sub-fields
+  composeAddress();
+
   const p = {};
 
   // Collect non-partner form fields (business, clauses, etc.)
@@ -1299,6 +1722,8 @@ function getPayload() {
     address: partner.address,
     capital: v(`partnerCapital_${i}`) || '',
     profit: v(`partnerProfit_${i}`) || '',
+    isManagingPartner: partner.isManagingPartner || false,
+    isBankAuthorized: partner.isBankAuthorized || false,
   }));
 
   // Backward compatibility: also set partner1*/partner2* for DB columns
@@ -1508,6 +1933,8 @@ function restorePartnersFromPayload(payload) {
       fatherName: p.fatherName || '',
       age: p.age || '',
       address: p.address || '',
+      isManagingPartner: !!p.isManagingPartner,
+      isBankAuthorized: !!p.isBankAuthorized,
     }));
   } else {
     // Legacy: reconstruct from partner1*/partner2* fields
@@ -1518,6 +1945,8 @@ function restorePartnersFromPayload(payload) {
         fatherName: payload.partner1FatherName || '',
         age: payload.partner1Age || '',
         address: payload.partner1Address || '',
+        isManagingPartner: false,
+        isBankAuthorized: false,
       },
       {
         name: payload.partner2Name || '',
@@ -1525,6 +1954,8 @@ function restorePartnersFromPayload(payload) {
         fatherName: payload.partner2FatherName || '',
         age: payload.partner2Age || '',
         address: payload.partner2Address || '',
+        isManagingPartner: false,
+        isBankAuthorized: false,
       },
     ];
   }
@@ -1577,6 +2008,21 @@ async function regenerateDeed(id) {
       setProfitFieldsDisabled(true);
     }
 
+    // Backward compat: decompose old single-field address into sub-fields
+    const rPayload = d.payload || {};
+    if (rPayload.registeredAddress && !rPayload.addrDoorNo) {
+      decomposeAddress(rPayload.registeredAddress);
+    }
+    composeAddress();
+
+    // Show objective output if it has content
+    const objOut = document.getElementById('objectiveOutput');
+    const objTa = document.getElementById('businessObjectives');
+    if (objOut && objTa && objTa.value.trim()) objOut.classList.remove('hidden');
+
+    // Restore duration field visibility
+    toggleDurationFields();
+
     updateCapitalHint();
     updateProfitHint();
     switchPage('generator');
@@ -1612,6 +2058,21 @@ async function editDeed(id) {
       syncProfitFromCapital();
       setProfitFieldsDisabled(true);
     }
+
+    // Backward compat: decompose old single-field address into sub-fields
+    const ePayload = d.payload || {};
+    if (ePayload.registeredAddress && !ePayload.addrDoorNo) {
+      decomposeAddress(ePayload.registeredAddress);
+    }
+    composeAddress();
+
+    // Show objective output if it has content
+    const objOut = document.getElementById('objectiveOutput');
+    const objTa = document.getElementById('businessObjectives');
+    if (objOut && objTa && objTa.value.trim()) objOut.classList.remove('hidden');
+
+    // Restore duration field visibility
+    toggleDurationFields();
 
     updateCapitalHint();
     updateProfitHint();
@@ -1668,6 +2129,20 @@ async function duplicateDeed(id) {
       setProfitFieldsDisabled(true);
     }
 
+    // Backward compat: decompose old single-field address into sub-fields
+    if (payload.registeredAddress && !payload.addrDoorNo) {
+      decomposeAddress(payload.registeredAddress);
+    }
+    composeAddress();
+
+    // Show objective output if it has content
+    const objOut = document.getElementById('objectiveOutput');
+    const objTa = document.getElementById('businessObjectives');
+    if (objOut && objTa && objTa.value.trim()) objOut.classList.remove('hidden');
+
+    // Restore duration field visibility
+    toggleDurationFields();
+
     updateCapitalHint();
     updateProfitHint();
     const wasOnHistory = currentPage === 'history';
@@ -1697,7 +2172,11 @@ async function viewStored(id) {
     const storedPartners = p.partners || [];
     if (storedPartners.length > 0) {
       storedPartners.forEach((pt, i) => {
-        details.push([`Partner ${i + 1}`, pt.name || 'N/A']);
+        const roles = [];
+        if (pt.isManagingPartner) roles.push('Managing');
+        if (pt.isBankAuthorized) roles.push('Bank Auth');
+        const roleStr = roles.length > 0 ? ` [${roles.join(', ')}]` : '';
+        details.push([`Partner ${i + 1}`, (pt.name || 'N/A') + roleStr]);
       });
     } else {
       details.push(['Partner 1', d.partner1_name || p.partner1Name || 'N/A']);
@@ -1705,6 +2184,14 @@ async function viewStored(id) {
     }
 
     details.push(['Date of Deed', p.deedDate || 'N/A']);
+
+    // Duration
+    if (p.partnershipDuration === 'fixed') {
+      details.push(['Duration', `Fixed: ${p.partnershipStartDate || '—'} to ${p.partnershipEndDate || '—'}`]);
+    } else {
+      details.push(['Duration', 'At Will of the Partners']);
+    }
+
     details.push(['Nature', p.natureOfBusiness || 'N/A']);
     details.push(['Registered Address', p.registeredAddress || 'N/A']);
 
@@ -1833,6 +2320,12 @@ function openPrintView() {
     `Partner ${i + 1} (${escapeHTML(p.name || 'N/A')}): ${escapeHTML(d[`partnerProfit_${i}`] || v(`partnerProfit_${i}`) || '0')}%`
   ).join(' | ');
 
+  // Duration text
+  let durationText = 'The duration of the firm shall be at WILL of the partners.';
+  if (d.partnershipDuration === 'fixed' && d.partnershipStartDate && d.partnershipEndDate) {
+    durationText = `The duration of the partnership shall be for a fixed period commencing from ${fmtDate(d.partnershipStartDate)} and ending on ${fmtDate(d.partnershipEndDate)}, unless terminated earlier by mutual consent of all the partners or by operation of law.`;
+  }
+
   // Signature blocks
   const sigBlocks = partners.map((p, i) => `
     <div class="sig-col">
@@ -1840,6 +2333,21 @@ function openPrintView() {
       <p><strong>${escapeHTML(p.name || '')}</strong><br>(${getPartyLabel(i)} Party)</p>
     </div>
   `).join('');
+
+  // Managing Partners text
+  const managingPartnersList = partners.filter(p => p.isManagingPartner);
+  const managingPartnersText = managingPartnersList.length > 0
+    ? managingPartnersList.map((p, idx) => `<strong>${escapeHTML(p.name || 'N/A')}</strong> (${getPartyLabel(partners.indexOf(p))} Party)`).join(', ')
+    : partners.map((p, i) => `<strong>${escapeHTML(p.name || 'N/A')}</strong> (${getPartyLabel(i)} Party)`).join(', ');
+
+  // Bank authorized partners text
+  const bankAuthPartners = partners.filter(p => p.isBankAuthorized);
+  const bankAuthText = bankAuthPartners.length > 0
+    ? bankAuthPartners.map(p => `<strong>${escapeHTML(p.name || 'N/A')}</strong> (${getPartyLabel(partners.indexOf(p))} Party)`).join(', ')
+    : '';
+
+  // Build clause numbering dynamically
+  let clauseNum = objectives ? 8 : 7;
 
   const html = `<!DOCTYPE html>
 <html><head>
@@ -1878,33 +2386,42 @@ ${partnerIntros}
 <p class="clause">1. Name of the Firm</p>
 <p class="indent">The partnership firm shall be known as <strong>M/s. ${biz}</strong>.</p>
 
-<p class="clause">2. Nature of Business</p>
+<p class="clause">2. Duration of the Partnership</p>
+<p class="indent">${escapeHTML(durationText)}</p>
+
+<p class="clause">3. Nature of Business</p>
 <p class="indent">${nature || 'As mutually agreed.'}</p>
 
-${objectives ? `<p class="clause">3. Business Objectives</p><p class="indent">${objectives}</p>` : ''}
+${objectives ? `<p class="clause">4. Business Objectives</p><p class="indent">${objectives}</p>` : ''}
 
-<p class="clause">${objectives ? '4' : '3'}. Place of Business</p>
+<p class="clause">${objectives ? '5' : '4'}. Place of Business</p>
 <p class="indent">${addr}</p>
 
-<p class="clause">${objectives ? '5' : '4'}. Capital Contribution</p>
+<p class="clause">${objectives ? '6' : '5'}. Capital Contribution</p>
 <p class="indent">${capitalLines}</p>
 
-<p class="clause">${objectives ? '6' : '5'}. Profit & Loss Sharing</p>
+<p class="clause">${objectives ? '7' : '6'}. Profit & Loss Sharing</p>
 <p class="indent">${profitLines}</p>
 
-<p class="clause">${objectives ? '7' : '6'}. Banking</p>
-<p class="indent">${d.bankOperation === 'either' ? 'Either partner may operate the bank account independently.' : 'All partners shall jointly operate the bank account.'}</p>
+<p class="clause">${objectives ? '8' : '7'}. Managing Partners</p>
+<p class="indent">The partners ${managingPartnersText} shall be the Managing Partner(s) of the firm, authorized to manage the business, appoint personnel, negotiate transactions, enter into contracts, correspond with authorities, and perform all acts necessary for the conduct of the business.</p>
 
-<p class="clause">${objectives ? '8' : '7'}. Interest on Capital</p>
+<p class="clause">${objectives ? '9' : '8'}. Banking</p>
+<p class="indent">${bankAuthText
+    ? `The bank account(s) of the firm shall be operated by ${bankAuthText}, who ${bankAuthPartners.length === 1 ? 'is' : 'are'} authorized for all bank-related transactions on behalf of the firm.`
+    : (d.bankOperation === 'either' ? 'Either partner may operate the bank account independently.' : 'All partners shall jointly operate the bank account.')
+  }</p>
+
+<p class="clause">${objectives ? '10' : '9'}. Interest on Capital</p>
 <p class="indent">${escapeHTML(d.interestRate || '12')}% per annum.</p>
 
-<p class="clause">${objectives ? '9' : '8'}. Retirement</p>
+<p class="clause">${objectives ? '11' : '10'}. Retirement</p>
 <p class="indent">Notice period of ${escapeHTML(d.noticePeriod || '3')} months.</p>
 
-<p class="clause">${objectives ? '10' : '9'}. Accounting Year</p>
+<p class="clause">${objectives ? '12' : '11'}. Accounting Year</p>
 <p class="indent">Books shall be closed on ${escapeHTML(d.accountingYear || '31st March')} every year.</p>
 
-${d.additionalPoints ? `<p class="clause">${objectives ? '11' : '10'}. Additional Terms</p><p class="indent">${escapeHTML(d.additionalPoints)}</p>` : ''}
+${d.additionalPoints ? `<p class="clause">${objectives ? '13' : '12'}. Additional Terms</p><p class="indent">${escapeHTML(d.additionalPoints)}</p>` : ''}
 
 <div class="sig-block">
   ${sigBlocks}
@@ -2039,6 +2556,48 @@ async function init() {
       }
       bulkAadhaarInput.value = '';
     });
+  }
+
+  // Business objective AI generation
+  const genObjBtn = document.getElementById('generateObjectiveBtn');
+  if (genObjBtn) genObjBtn.addEventListener('click', generateBusinessObjective);
+
+  const regenObjBtn = document.getElementById('regenerateObjectiveBtn');
+  if (regenObjBtn) regenObjBtn.addEventListener('click', generateBusinessObjective);
+
+  // Business name AI suggestions
+  const suggestNamesBtn = document.getElementById('suggestNamesBtn');
+  if (suggestNamesBtn) suggestNamesBtn.addEventListener('click', suggestBusinessNames);
+
+  // Structured address sub-fields → compose into hidden registeredAddress
+  ADDRESS_FIELDS.forEach(fieldId => {
+    const el = document.getElementById(fieldId);
+    if (el) {
+      el.addEventListener('input', () => {
+        composeAddress();
+        saveDraft();
+        debouncedServerSave();
+      });
+    }
+  });
+
+  // Partnership duration toggle
+  const durationSelect = document.getElementById('partnershipDuration');
+  if (durationSelect) {
+    durationSelect.addEventListener('change', () => {
+      toggleDurationFields();
+      saveDraft();
+      debouncedServerSave();
+    });
+    // Restore visibility if loaded from draft with "fixed" selected
+    toggleDurationFields();
+  }
+
+  // Show objective output section if businessObjectives already has content (e.g., loaded from draft)
+  const objectiveOutput = document.getElementById('objectiveOutput');
+  const businessObjectivesEl = document.getElementById('businessObjectives');
+  if (objectiveOutput && businessObjectivesEl && businessObjectivesEl.value.trim()) {
+    objectiveOutput.classList.remove('hidden');
   }
 
   // Step tab navigation

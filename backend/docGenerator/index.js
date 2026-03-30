@@ -162,7 +162,19 @@ function buildDeedContent(d) {
 
   // ─── CLAUSE 2: Duration ───────────────────────────────────────────────────
   content.push(clauseHead(2, 'Duration'));
-  content.push(body('The duration of the firm shall be at WILL of the partners.'));
+  if (d.partnershipDuration === 'fixed' && d.partnershipStartDate && d.partnershipEndDate) {
+    const startDate = formatDate(d.partnershipStartDate) || d.partnershipStartDate;
+    const endDate = formatDate(d.partnershipEndDate) || d.partnershipEndDate;
+    content.push(body([
+      run('The duration of the partnership shall be for a fixed period commencing from ', { size: 11 }),
+      run(startDate, { bold: true, size: 11 }),
+      run(' and ending on ', { size: 11 }),
+      run(endDate, { bold: true, size: 11 }),
+      run(', unless terminated earlier by mutual consent of all the partners or by operation of law.', { size: 11 }),
+    ]));
+  } else {
+    content.push(body('The duration of the firm shall be at WILL of the partners.'));
+  }
 
   // ─── CLAUSE 3: Place of Business ──────────────────────────────────────────
   content.push(clauseHead(3, 'Principal Place of Business'));
@@ -189,20 +201,26 @@ function buildDeedContent(d) {
     ]));
   });
 
-  // ─── CLAUSE 6: Managing Partners (Dynamic) ───────────────────────────────
+  // ─── CLAUSE 6: Managing Partners (Dynamic — based on selections) ──────────
   content.push(clauseHead(6, 'Managing Partners'));
+
+  // Determine managing partners: use selected ones, or fall back to all partners
+  const managingPartners = partners
+    .map((pt, i) => ({ ...pt, _index: i }))
+    .filter(pt => pt.isManagingPartner);
+  const effectiveManagingPartners = managingPartners.length > 0 ? managingPartners : partners.map((pt, i) => ({ ...pt, _index: i }));
 
   // Build the dynamic "Party of the First Part X & Second Part Y & ..." text
   const managingPartnerRuns = [];
   managingPartnerRuns.push(run('The parties ', { size: 11 }));
-  partners.forEach((pt, i) => {
+  effectiveManagingPartners.forEach((pt, i) => {
     if (i > 0) {
       managingPartnerRuns.push(run(' & ', { size: 11 }));
     }
     managingPartnerRuns.push(run(pt.name, { bold: true, size: 11 }));
-    managingPartnerRuns.push(run(` (${getPartyLabel(i)} Party)`, { size: 11 }));
+    managingPartnerRuns.push(run(` (${getPartyLabel(pt._index)} Party)`, { size: 11 }));
   });
-  managingPartnerRuns.push(run(' shall be the managing partners and are authorized and empowered to do the following acts, deeds and things on behalf of the firm:', { size: 11 }));
+  managingPartnerRuns.push(run(` shall be the managing partner${effectiveManagingPartners.length > 1 ? 's' : ''} and ${effectiveManagingPartners.length > 1 ? 'are' : 'is'} authorized and empowered to do the following acts, deeds and things on behalf of the firm:`, { size: 11 }));
   content.push(body(managingPartnerRuns));
 
   const managingPowers = [
@@ -236,9 +254,32 @@ function buildDeedContent(d) {
 
   const nextClause = additionalPoints.trim() ? 8 : 7;
 
-  // ─── CLAUSE: Banking (Dynamic partners) ───────────────────────────────────
+  // ─── CLAUSE: Banking (Dynamic partners — based on bank authorization) ──────
   content.push(clauseHead(nextClause, 'Banking'));
-  if (bankOp === 'jointly') {
+
+  // Determine bank-authorized partners
+  const bankAuthPartners = partners
+    .map((pt, i) => ({ ...pt, _index: i }))
+    .filter(pt => pt.isBankAuthorized);
+
+  if (bankAuthPartners.length > 0) {
+    // Use specifically authorized partners
+    const bankingRuns = [];
+    bankingRuns.push(run('The firm shall maintain one or more banking accounts (e.g., current accounts, overdrafts, cash credit, etc.) as may be decided by the partners from time to time. The said bank accounts shall be operated by ', { size: 11 }));
+
+    bankAuthPartners.forEach((pt, i) => {
+      if (i > 0 && i < bankAuthPartners.length - 1) {
+        bankingRuns.push(run(', ', { size: 11 }));
+      } else if (i === bankAuthPartners.length - 1 && bankAuthPartners.length > 1) {
+        bankingRuns.push(run(' and ', { size: 11 }));
+      }
+      bankingRuns.push(run(pt.name, { bold: true, size: 11 }));
+      bankingRuns.push(run(` (${getPartyLabel(pt._index)} Party)`, { size: 11 }));
+    });
+
+    bankingRuns.push(run(`, who ${bankAuthPartners.length === 1 ? 'is' : 'are'} authorized for all bank-related transactions including the issuance and authorization of cheques, demand drafts, and any other banking instruments on behalf of the firm.`, { size: 11 }));
+    content.push(body(bankingRuns));
+  } else if (bankOp === 'jointly') {
     const bankingRuns = [];
     bankingRuns.push(run('The firm shall maintain one or more banking accounts (e.g., current accounts, overdrafts, cash credit, etc.) as may be decided by the partners from time to time. The said bank accounts shall be operated jointly by ', { size: 11 }));
 

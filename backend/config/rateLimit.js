@@ -26,4 +26,12 @@ const ocrLimiter = rateLimit({
   message: { success: false, error: 'OCR rate limit reached. Please wait a few minutes.' },
 });
 
-module.exports = { generalLimiter, generateLimiter, ocrLimiter };
+const aiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30, // 30 AI generation requests per 15 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'AI generation limit reached. Please wait a few minutes.' },
+});
+
+module.exports = { generalLimiter, generateLimiter, ocrLimiter, aiLimiter };
