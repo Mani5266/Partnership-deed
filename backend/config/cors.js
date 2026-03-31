@@ -3,6 +3,7 @@
 const isProduction = process.env.NODE_ENV === 'production';
 
 const allowedOrigins = [
+  'https://deed.oneasy.ai',
   'https://partnership-deed-generator.vercel.app',
   'https://partnership-deed.vercel.app',
   ...(!isProduction ? [

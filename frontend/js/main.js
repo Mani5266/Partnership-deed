@@ -1,9 +1,7 @@
-import { API_URL } from './config.js';
+import { API_URL, supabase } from './config.js';
 import { v, fmtDate, showAlert, escapeHTML } from './utils.js';
-import { login, signup, logout, checkSession, getAccessToken, onAuthStateChange, supabase } from './auth.js';
 
 let currentStep = 0;
-let currentUser = null;
 let currentPage = 'generator'; // 'generator' or 'history'
 let currentDeedId = null;
 
@@ -29,96 +27,12 @@ function getPartyLabel(index) {
   return ORDINAL_LABELS[index] || `${index + 1}th`;
 }
 
-// ── AUTH INTEGRATION ──────────────────────────────────────────────────────────
-
-function initAuth() {
-  const tabLogin = document.getElementById('tabLogin');
-  const tabSignup = document.getElementById('tabSignup');
-  const loginForm = document.getElementById('loginForm');
-  const signupForm = document.getElementById('signupForm');
-  const authError = document.getElementById('authError');
-
-  tabLogin.onclick = () => {
-    tabLogin.classList.add('active');
-    tabLogin.setAttribute('aria-selected', 'true');
-    tabSignup.classList.remove('active');
-    tabSignup.setAttribute('aria-selected', 'false');
-    loginForm.classList.remove('hidden');
-    signupForm.classList.add('hidden');
-    authError.classList.add('hidden');
-  };
-
-  tabSignup.onclick = () => {
-    tabSignup.classList.add('active');
-    tabSignup.setAttribute('aria-selected', 'true');
-    tabLogin.classList.remove('active');
-    tabLogin.setAttribute('aria-selected', 'false');
-    signupForm.classList.remove('hidden');
-    loginForm.classList.add('hidden');
-    authError.classList.add('hidden');
-  };
-
-  loginForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const btn = document.getElementById('loginBtn');
-    btn.disabled = true;
-    btn.textContent = 'Signing in\u2026';
-    try {
-      const user = await login(v('loginEmail'), v('loginPass'));
-      if (user) handleAuthSuccess(user);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Sign In';
-    }
-  });
-
-  signupForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const btn = document.getElementById('signupBtn');
-    btn.disabled = true;
-    btn.textContent = 'Creating account\u2026';
-    try {
-      const data = await signup(v('signupEmail'), v('signupPass'), v('signupName'));
-      if (data) {
-        showAlert('success', 'Signup successful! Please check your email and then login.');
-        tabLogin.click();
-      }
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Create Account';
-    }
-  });
-
-  document.getElementById('signOutBtn').onclick = logout;
-}
-
-function handleAuthSuccess(user) {
-  currentUser = user;
-  document.getElementById('authOverlay').classList.add('hidden');
-  document.getElementById('appShell').classList.remove('hidden');
-
-  const emailDisplay = document.getElementById('userEmail');
-  const email = user.email || user.user_metadata?.full_name || '';
-  if (emailDisplay) emailDisplay.textContent = email;
-
-  loadDraft();
-  fetchSidebarDrafts();
-}
-
-async function getAuthHeaders() {
-  const token = await getAccessToken();
-  return {
-    'Content-Type': 'application/json',
-    'Authorization': token ? `Bearer ${token}` : '',
-  };
-}
-
 // ── SUPABASE CRUD HELPERS ─────────────────────────────────────────────────────
 
 async function dbInsertDeed({ business_name, partner1_name, partner2_name, payload }) {
   const { data, error } = await supabase
     .from('deeds')
-    .insert({ user_id: currentUser.id, business_name, partner1_name, partner2_name, payload })
+    .insert({ business_name, partner1_name, partner2_name, payload })
     .select()
     .single();
   if (error) throw error;
@@ -568,7 +482,7 @@ async function callOcrApi(file) {
 
   const response = await fetch('/api/ocr/aadhaar', {
     method: 'POST',
-    headers: await getAuthHeaders(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ image: base64, mimeType }),
   });
 
@@ -835,7 +749,7 @@ async function generateBusinessObjective() {
   try {
     const response = await fetch('/api/generate-objective', {
       method: 'POST',
-      headers: await getAuthHeaders(),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description }),
     });
 
@@ -892,7 +806,7 @@ async function suggestBusinessNames() {
   try {
     const response = await fetch('/api/suggest-business-names', {
       method: 'POST',
-      headers: await getAuthHeaders(),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ natureOfBusiness }),
     });
 
@@ -1446,12 +1360,12 @@ function saveDraft() {
     }
   });
 
-  const key = currentUser ? `deedforge_draft_${currentUser.id}` : 'deedforge_draft';
+  const key = 'deedforge_draft';
   localStorage.setItem(key, JSON.stringify(draft));
 }
 
 function loadDraft() {
-  const key = currentUser ? `deedforge_draft_${currentUser.id}` : 'deedforge_draft';
+  const key = 'deedforge_draft';
   const saved = localStorage.getItem(key);
   if (!saved) {
     renderPartners();
@@ -1781,7 +1695,7 @@ async function generate() {
     const generatePayload = { ...payload, _deedId: currentDeedId };
     const res = await fetch(API_URL, {
       method: 'POST',
-      headers: await getAuthHeaders(),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(generatePayload)
     });
 
@@ -2619,7 +2533,7 @@ function initMobileMenu() {
 
 async function init() {
   // ── BIND ALL UI HANDLERS FIRST (before any async operations) ──
-  // This ensures buttons work even if async auth/network calls are slow or fail
+  // This ensures buttons work even if async network calls are slow or fail
 
   // Sidebar: New Deed
   const newDeedBtn = document.getElementById('newDeedBtn');
@@ -2793,26 +2707,12 @@ async function init() {
   // Update partner count input to match initial state
   updatePartnerCountInput();
 
-  // ── ASYNC INITIALIZATION (auth, drafts, routing) ──
+  // ── INITIALIZATION (load drafts, routing) ──
   try {
-    initAuth();
-
-    const user = await checkSession();
-    if (user) handleAuthSuccess(user);
-
-    // Auth state listener
-    onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !session)) {
-        currentUser = null;
-        document.getElementById('appShell').classList.add('hidden');
-        document.getElementById('authOverlay').classList.remove('hidden');
-        showAlert('error', 'Your session has expired. Please sign in again.');
-      } else if (event === 'SIGNED_IN' && session?.user && !currentUser) {
-        handleAuthSuccess(session.user);
-      }
-    });
-  } catch (authErr) {
-    console.error('Auth initialization error:', authErr);
+    loadDraft();
+    fetchSidebarDrafts();
+  } catch (initErr) {
+    console.error('Initialization error:', initErr);
   }
 
   // Render initial partners (if not already loaded from draft)

@@ -8,8 +8,7 @@ const helmet = require('helmet');
 const { generateDoc } = require('./docGenerator/index');
 const { supabaseAdmin } = require('./utils/supabase');
 const { validateGeneratePayload } = require('./validation');
-const { logAudit } = require('./utils/audit');
-const { verifyAuth } = require('./middleware/auth');
+
 const { extractAadhaarData } = require('./ocr');
 const log = require('./utils/logger');
 const { corsOptions } = require('./config/cors');
@@ -92,7 +91,7 @@ app.use(express.static(path.join(__dirname, '../frontend'), {
 
 // ── DOCUMENT GENERATION ──────────────────────────────────────────────────────
 
-app.post('/generate', generateLimiter, verifyAuth, async (req, res) => {
+app.post('/generate', generateLimiter, async (req, res) => {
   try {
     const validation = validateGeneratePayload(req.body);
     if (!validation.success) {
@@ -109,50 +108,28 @@ app.post('/generate', generateLimiter, verifyAuth, async (req, res) => {
     const filename = `Partnership_Deed_${bizName}.docx`;
 
     // Upload to Supabase Storage
-    const userId = req.user.id;
     const deedId = validatedData._deedId || 'unknown';
-    const storagePath = `${userId}/${deedId}/${filename}`;
+    const storagePath = `deeds/${deedId}/${filename}`;
     let doc_url = null;
 
     try {
-      let ownershipVerified = false;
-      if (deedId && deedId !== 'unknown') {
-        const { data: deedRow, error: lookupErr } = await supabaseAdmin
-          .from('deeds')
-          .select('id')
-          .eq('id', deedId)
-          .eq('user_id', userId)
-          .single();
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from('deed-docs')
+        .upload(storagePath, buffer, {
+          contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          upsert: true,
+        });
 
-        if (lookupErr || !deedRow) {
-          log.warn('Ownership check failed', { reqId: req.id, deedId, userId });
-        } else {
-          ownershipVerified = true;
-        }
+      if (uploadError) {
+        log.error('Storage upload failed', { reqId: req.id, error: uploadError.message });
       } else {
-        ownershipVerified = true;
-      }
+        doc_url = storagePath;
 
-      if (ownershipVerified) {
-        const { error: uploadError } = await supabaseAdmin.storage
-          .from('deed-docs')
-          .upload(storagePath, buffer, {
-            contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            upsert: true,
-          });
-
-        if (uploadError) {
-          log.error('Storage upload failed', { reqId: req.id, error: uploadError.message });
-        } else {
-          doc_url = storagePath;
-
-          if (deedId && deedId !== 'unknown') {
-            await supabaseAdmin
-              .from('deeds')
-              .update({ doc_url: storagePath })
-              .eq('id', deedId)
-              .eq('user_id', userId);
-          }
+        if (deedId && deedId !== 'unknown') {
+          await supabaseAdmin
+            .from('deeds')
+            .update({ doc_url: storagePath })
+            .eq('id', deedId);
         }
       }
     } catch (storageErr) {
@@ -163,14 +140,6 @@ app.post('/generate', generateLimiter, verifyAuth, async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
     res.send(buffer);
 
-    // Audit log (fire-and-forget)
-    logAudit({
-      user_id: req.user.id,
-      action: 'generate_document',
-      resource_type: 'partnership_deed',
-      details: { business_name: bizName, doc_url: doc_url || '' },
-    }).catch(err => log.error('Audit log failed', { reqId: req.id, error: err.message }));
-
   } catch (err) {
     log.error('DocGen Error', { reqId: req.id, error: err.message, stack: err.stack });
     res.status(500).json({ success: false, error: 'Failed to generate document' });
@@ -178,11 +147,10 @@ app.post('/generate', generateLimiter, verifyAuth, async (req, res) => {
 });
 
 // ── DEED MANAGEMENT (CRUD) ────────────────────────────────────────────────
-// CRUD operations are handled directly by the frontend Supabase client
-// (which is authenticated and respects RLS).
+// CRUD operations are handled directly by the frontend Supabase client.
 
 // ── AADHAAR OCR (Gemini Vision) ──────────────────────────────────────────
-app.post('/api/ocr/aadhaar', ocrLimiter, verifyAuth, async (req, res) => {
+app.post('/api/ocr/aadhaar', ocrLimiter, async (req, res) => {
   try {
     const { image, mimeType } = req.body;
 
@@ -224,7 +192,7 @@ app.post('/api/ocr/aadhaar', ocrLimiter, verifyAuth, async (req, res) => {
 });
 
 // ── BUSINESS OBJECTIVE AI GENERATION (Gemini) ────────────────────────────────
-app.post('/api/generate-objective', aiLimiter, verifyAuth, async (req, res) => {
+app.post('/api/generate-objective', aiLimiter, async (req, res) => {
   try {
     const { description } = req.body;
 
@@ -316,7 +284,7 @@ Return ONLY the formal business objective text (no quotes, no markdown, no expla
 });
 
 // ── BUSINESS NAME AI SUGGESTIONS (Gemini) ────────────────────────────────────
-app.post('/api/suggest-business-names', aiLimiter, verifyAuth, async (req, res) => {
+app.post('/api/suggest-business-names', aiLimiter, async (req, res) => {
   try {
     const { natureOfBusiness } = req.body;
 

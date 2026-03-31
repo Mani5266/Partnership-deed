@@ -4,7 +4,6 @@ const { Document, Packer, AlignmentType } = require('docx');
 const constants = require('./constants');
 const helpers   = require('./helpers');
 const { sigTable } = require('./tables');
-const { makeHeader, makeFooter } = require('./headerFooter');
 const { formatDate } = require('./dateUtils');
 
 // Ordinal labels for parties
@@ -411,8 +410,6 @@ async function generateDoc(d) {
     },
   };
 
-  const header = makeHeader();
-  const footer = makeFooter();
   const children = buildDeedContent(d);
 
   const doc = new Document({
@@ -423,8 +420,6 @@ async function generateDoc(d) {
     },
     sections: [{
       properties: pageProps,
-      headers: { default: header },
-      footers: { default: footer },
       children,
     }],
   });

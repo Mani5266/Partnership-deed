@@ -24,9 +24,8 @@ if (missing.length > 0) {
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Admin client (service role key) — bypasses RLS, used for:
-// - Verifying JWT tokens via auth.getUser()
-// - Audit logging
-// - Storage uploads
+// - Storage uploads (generated .docx files)
+// - Database operations (updating deed rows with doc_url)
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
   auth: {
     autoRefreshToken: false,

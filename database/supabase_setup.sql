@@ -1,23 +1,22 @@
 -- ═══════════════════════════════════════════════════════════════════
 -- DeedForge — Partnership Deed Generator
--- Supabase Database Setup (FRESH START)
+-- Supabase Database Setup (NO AUTH — Open Access)
 -- ═══════════════════════════════════════════════════════════════════
 
 -- 1. DROP EXISTING TABLES (CAUTION: This deletes all data!)
 DROP TABLE IF EXISTS public.deeds CASCADE;
-DROP TABLE IF EXISTS public.profiles CASCADE;
-DROP TABLE IF EXISTS public.audit_logs CASCADE;
+DROP FUNCTION IF EXISTS cleanup_old_deeds(INTEGER);
 
 -- 2. ENABLE EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ═══════════════════════════════════════════════════════════════════
 -- TABLE: deeds — Stores partnership deed form data and doc references
+-- No auth, no user_id, no RLS — open access
 -- ═══════════════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS public.deeds (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
     business_name TEXT NOT NULL DEFAULT '',
     partner1_name TEXT NOT NULL DEFAULT '',
     partner2_name TEXT NOT NULL DEFAULT '',
@@ -27,25 +26,18 @@ CREATE TABLE IF NOT EXISTS public.deeds (
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Enable RLS
-ALTER TABLE public.deeds ENABLE ROW LEVEL SECURITY;
+-- Columns explained:
+--   id            — UUID primary key (auto-generated)
+--   business_name — M/s. business name for quick display
+--   partner1_name — Legacy: first partner name (backward compat)
+--   partner2_name — Legacy: second partner name (backward compat)
+--   payload       — JSONB blob containing ALL form data (N-partner arrays, clauses, etc.)
+--   doc_url       — Storage path to generated .docx file
+--   created_at    — Auto-set on insert
+--   updated_at    — Auto-updated via trigger on every row change
 
--- RLS Policies: Users can only access their own deeds
-CREATE POLICY "Users can view their own deeds"
-    ON public.deeds FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert their own deeds"
-    ON public.deeds FOR INSERT
-    WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update their own deeds"
-    ON public.deeds FOR UPDATE
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete their own deeds"
-    ON public.deeds FOR DELETE
-    USING (auth.uid() = user_id);
+-- NO RLS — open access (no authentication)
+ALTER TABLE public.deeds DISABLE ROW LEVEL SECURITY;
 
 -- Auto-update updated_at on row change
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -61,72 +53,7 @@ CREATE TRIGGER update_deeds_updated_at
     FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 
 -- ═══════════════════════════════════════════════════════════════════
--- TABLE: profiles — Extended user profiles
--- ═══════════════════════════════════════════════════════════════════
-
-CREATE TABLE IF NOT EXISTS public.profiles (
-    id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL PRIMARY KEY,
-    updated_at TIMESTAMPTZ,
-    full_name TEXT,
-    avatar_url TEXT,
-    role TEXT DEFAULT 'user'
-);
-
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view their own profile."
-    ON public.profiles FOR SELECT
-    USING (auth.uid() = id);
-
-CREATE POLICY "Users can update their own profile."
-    ON public.profiles FOR UPDATE
-    USING (auth.uid() = id);
-
--- Auto-create profile on signup
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO public.profiles (id, full_name)
-    VALUES (NEW.id, NEW.raw_user_meta_data->>'full_name');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE TRIGGER on_auth_user_created
-    AFTER INSERT ON auth.users
-    FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
-
--- ═══════════════════════════════════════════════════════════════════
--- TABLE: audit_logs — Security and action audit trail
--- ═══════════════════════════════════════════════════════════════════
-
-CREATE TABLE IF NOT EXISTS public.audit_logs (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    user_id UUID REFERENCES auth.users,
-    action TEXT NOT NULL,
-    resource TEXT,
-    details JSONB,
-    created_at TIMESTAMPTZ DEFAULT now()
-);
-
-ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
-
--- Only admins can read audit logs
-CREATE POLICY "Admin can view all audit logs."
-    ON public.audit_logs FOR SELECT
-    USING (EXISTS (
-        SELECT 1 FROM public.profiles
-        WHERE id = auth.uid() AND role = 'admin'
-    ));
-
--- Defense-in-depth: users can only insert logs for themselves
--- (Service role bypasses RLS entirely)
-CREATE POLICY "Users can only insert their own audit logs."
-    ON public.audit_logs FOR INSERT
-    WITH CHECK (auth.uid() = user_id);
-
--- ═══════════════════════════════════════════════════════════════════
--- DATA RETENTION — Cleanup old deeds
+-- DATA RETENTION — Cleanup old deeds (optional)
 -- ═══════════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION cleanup_old_deeds(retention_days INTEGER DEFAULT 90)
@@ -138,19 +65,6 @@ BEGIN
     WHERE created_at < NOW() - (retention_days || ' days')::INTERVAL;
 
     GET DIAGNOSTICS deleted_count = ROW_COUNT;
-
-    -- Log the cleanup action
-    INSERT INTO public.audit_logs (action, resource, details)
-    VALUES (
-        'data_retention_cleanup',
-        'partnership_deed',
-        jsonb_build_object(
-            'deleted_count', deleted_count,
-            'retention_days', retention_days,
-            'executed_at', NOW()
-        )
-    );
-
     RETURN deleted_count;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -167,27 +81,18 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- INSERT INTO storage.buckets (id, name, public)
 -- VALUES ('deed-docs', 'deed-docs', false);
 --
--- Storage RLS policies:
+-- Storage policies (no auth — allow all operations via service role on backend):
+-- The backend uses the service_role key to upload files, so no RLS policies
+-- are needed on storage. Downloads are done via the anon client.
 --
--- CREATE POLICY "Users can upload their own deed docs"
---   ON storage.objects FOR INSERT
---   WITH CHECK (
---     bucket_id = 'deed-docs'
---     AND (storage.foldername(name))[1] = auth.uid()::text
---   );
+-- If you want to allow public downloads, make the bucket public:
+-- UPDATE storage.buckets SET public = true WHERE id = 'deed-docs';
 --
--- CREATE POLICY "Users can view their own deed docs"
---   ON storage.objects FOR SELECT
---   USING (
---     bucket_id = 'deed-docs'
---     AND (storage.foldername(name))[1] = auth.uid()::text
---   );
+-- Or add a permissive policy:
+-- CREATE POLICY "Allow all access to deed-docs"
+--   ON storage.objects
+--   FOR ALL
+--   USING (bucket_id = 'deed-docs')
+--   WITH CHECK (bucket_id = 'deed-docs');
 --
--- CREATE POLICY "Users can delete their own deed docs"
---   ON storage.objects FOR DELETE
---   USING (
---     bucket_id = 'deed-docs'
---     AND (storage.foldername(name))[1] = auth.uid()::text
---   );
---
--- Files stored at: {user_id}/{deed_id}/{filename}.docx
+-- Files stored at: deeds/{deed_id}/{filename}.docx
