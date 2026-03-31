@@ -2293,61 +2293,117 @@ async function downloadStoredDoc(id) {
 function openPrintView() {
   syncPartnersFromDOM();
   const d = getPayload();
-  const biz = escapeHTML(d.businessName || '');
-  const deedDate = fmtDate(d.deedDate);
-  const addr = escapeHTML(d.registeredAddress || '');
-  const nature = escapeHTML(d.natureOfBusiness || '');
-  const objectives = escapeHTML(d.businessObjectives || '');
+  const biz = escapeHTML(d.businessName || '_______________');
+  const deedDate = fmtDate(d.deedDate) || 'the _______ day of _______ 20___';
+  const addr = escapeHTML(d.registeredAddress || '_______________');
+  const nature = escapeHTML(d.natureOfBusiness || '_______________');
+  const objectives = escapeHTML(d.businessObjectives || '_______________');
+  const interestRate = escapeHTML(d.interestRate || '12');
+  const noticePeriod = escapeHTML(d.noticePeriod || '3');
+  const accountingYear = escapeHTML(d.accountingYear || '31st March');
+  const bankOp = d.bankOperation || 'jointly';
+  const additionalPoints = d.additionalPoints || '';
 
-  // Build partner intro paragraphs
+  // Build partner intro paragraphs (matching DOCX format)
   const partnerIntros = partners.map((p, i) => {
-    const name = escapeHTML(p.name || '');
+    const name = escapeHTML(p.name || '_______________');
     const rel = escapeHTML(p.relation || 'S/O');
-    const father = escapeHTML(p.fatherName || '');
-    const age = escapeHTML(String(p.age || ''));
-    const address = escapeHTML(p.address || '');
+    const father = escapeHTML(p.fatherName || '_______________');
+    const age = escapeHTML(String(p.age || '___'));
+    const address = escapeHTML(p.address || '_______________');
     const label = getPartyLabel(i);
-    return `<p class="indent"><strong>${name}</strong>, ${rel} ${father}, aged ${age} years, residing at ${address}, hereinafter referred to as the <strong>"${label} Party"</strong>${i < partners.length - 1 ? ',' : '.'}</p>
-    ${i < partners.length - 1 ? '<p style="text-align:center;">AND</p>' : ''}`;
+    let html = `<p class="body-text"><strong>${name}</strong> ${rel} <strong>${father}</strong> Aged <strong>${age}</strong> Years, residing at ${address}.</p>`;
+    html += `<p class="body-text">(Hereinafter called as the <strong><em>"${label} Party"</em></strong>)</p>`;
+    if (i < partners.length - 1) {
+      html += `<p class="and-separator"><strong>AND</strong></p>`;
+    }
+    return html;
   }).join('\n');
 
-  // Capital & Profit lines
-  const capitalLines = partners.map((p, i) =>
-    `Partner ${i + 1} (${escapeHTML(p.name || 'N/A')}): ${escapeHTML(d[`partnerCapital_${i}`] || v(`partnerCapital_${i}`) || '0')}%`
-  ).join(' | ');
+  // Capital contribution bullet list (matching DOCX format)
+  const capitalBullets = partners.map((p, i) => {
+    const name = escapeHTML(p.name || '_______________');
+    const label = getPartyLabel(i);
+    const cap = escapeHTML(d[`partnerCapital_${i}`] || v(`partnerCapital_${i}`) || '___');
+    return `<li><strong>${label} Party (${name}):</strong> ${cap}%</li>`;
+  }).join('\n');
 
-  const profitLines = partners.map((p, i) =>
-    `Partner ${i + 1} (${escapeHTML(p.name || 'N/A')}): ${escapeHTML(d[`partnerProfit_${i}`] || v(`partnerProfit_${i}`) || '0')}%`
-  ).join(' | ');
+  // Profit sharing bullet list (matching DOCX format)
+  const profitBullets = partners.map((p, i) => {
+    const name = escapeHTML(p.name || '_______________');
+    const label = getPartyLabel(i);
+    const prof = escapeHTML(d[`partnerProfit_${i}`] || v(`partnerProfit_${i}`) || '___');
+    return `<li><strong>${name}</strong> (${label} Party) - ${prof}%</li>`;
+  }).join('\n');
 
   // Duration text
   let durationText = 'The duration of the firm shall be at WILL of the partners.';
   if (d.partnershipDuration === 'fixed' && d.partnershipStartDate && d.partnershipEndDate) {
-    durationText = `The duration of the partnership shall be for a fixed period commencing from ${fmtDate(d.partnershipStartDate)} and ending on ${fmtDate(d.partnershipEndDate)}, unless terminated earlier by mutual consent of all the partners or by operation of law.`;
+    durationText = `The duration of the partnership shall be for a fixed period commencing from <strong>${fmtDate(d.partnershipStartDate)}</strong> and ending on <strong>${fmtDate(d.partnershipEndDate)}</strong>, unless terminated earlier by mutual consent of all the partners or by operation of law.`;
   }
 
-  // Signature blocks
-  const sigBlocks = partners.map((p, i) => `
-    <div class="sig-col">
-      <p>________________________________</p>
-      <p><strong>${escapeHTML(p.name || '')}</strong><br>(${getPartyLabel(i)} Party)</p>
-    </div>
+  // Managing Partners (matching DOCX Clause 6 structure)
+  const managingPartnersList = partners
+    .map((p, i) => ({ ...p, _index: i }))
+    .filter(p => p.isManagingPartner);
+  const effectiveManagingPartners = managingPartnersList.length > 0
+    ? managingPartnersList
+    : partners.map((p, i) => ({ ...p, _index: i }));
+
+  const managingPartnersText = effectiveManagingPartners.map((p, i) => {
+    const sep = i > 0 ? ' &amp; ' : '';
+    return `${sep}<strong>${escapeHTML(p.name || 'N/A')}</strong> (${getPartyLabel(p._index)} Party)`;
+  }).join('');
+
+  const pluralMgr = effectiveManagingPartners.length > 1;
+  const managingPowers = [
+    'To manage the business of the partnership firm with a power to appoint remuneration, etc. They shall also have the power to dispense with the service of such personnel that are not required.',
+    'To negotiate any business transactions and enter into agreements on behalf of the firm and to enter into all/any contracts and sub-contracts on either way. To enter to the sale and purchase agreements relating to the objective of the business.',
+    'To enter into correspondence with government departments, quasi-govt departments, public and private organizations, individuals, etc regarding the partnership business.',
+    'To incur all expenses necessary for the conduct of the business.',
+    'To borrow moneys against credit of partnership, if necessary by hypothecating or creating a charge upon the assets of the partnership.',
+    'To be in custody of all account books, documents, negotiable instruments and all other documents pertaining to the business.',
+    'To look after the proper upkeep of books of accounts required for the business and to supervise the same at regular intervals.',
+    'To open bank account/accounts in the name of the partnership firm.',
+    'To put all the monies, cheques etc., which are not immediately required for the conduct of the business into the bank account, opened for the Partnership business.',
+    'To do all other acts and things that are necessary for carrying on the business.',
+  ];
+  const managingPowersList = managingPowers.map(p => `<li>${p}</li>`).join('\n');
+
+  // Banking (matching DOCX structure)
+  const bankAuthPartners = partners
+    .map((p, i) => ({ ...p, _index: i }))
+    .filter(p => p.isBankAuthorized);
+
+  let bankingText = '';
+  if (bankAuthPartners.length > 0) {
+    const bankNames = bankAuthPartners.map((p, i) => {
+      let sep = '';
+      if (i > 0 && i < bankAuthPartners.length - 1) sep = ', ';
+      else if (i === bankAuthPartners.length - 1 && bankAuthPartners.length > 1) sep = ' and ';
+      return `${sep}<strong>${escapeHTML(p.name || 'N/A')}</strong> (${getPartyLabel(p._index)} Party)`;
+    }).join('');
+    bankingText = `The firm shall maintain one or more banking accounts (e.g., current accounts, overdrafts, cash credit, etc.) as may be decided by the partners from time to time. The said bank accounts shall be operated by ${bankNames}, who ${bankAuthPartners.length === 1 ? 'is' : 'are'} authorized for all bank-related transactions including the issuance and authorization of cheques, demand drafts, and any other banking instruments on behalf of the firm.`;
+  } else if (bankOp === 'jointly') {
+    const jointNames = partners.map((p, i) => {
+      let sep = '';
+      if (i > 0 && i < partners.length - 1) sep = ', ';
+      else if (i === partners.length - 1 && partners.length > 1) sep = ' and ';
+      return `${sep}<strong>${escapeHTML(p.name || 'N/A')}</strong> (${getPartyLabel(i)} Party)`;
+    }).join('');
+    bankingText = `The firm shall maintain one or more banking accounts (e.g., current accounts, overdrafts, cash credit, etc.) as may be decided by the partners from time to time. The said bank accounts shall be operated jointly by ${jointNames}. The signatures of all partners shall be jointly required for the issuance and authorization of cheques or any other banking transactions. No transaction shall be deemed valid unless signed by all partners.`;
+  } else {
+    bankingText = 'The firm shall maintain one or more banking accounts as may be decided by the partners from time to time. The said bank accounts may be operated by any partner independently.';
+  }
+
+  // Additional terms clause number pivot
+  const nextClause = additionalPoints.trim() ? 8 : 7;
+
+  // Signature table (matching DOCX: witnesses on left, partners on right)
+  const partnerSigRows = partners.map((p, i) => `
+    <p>${i + 1}. ${escapeHTML(p.name || '________________________')}</p>
+    <p style="margin-left:1em; margin-top:0;">(${getPartyLabel(i)} Party)</p>
   `).join('');
-
-  // Managing Partners text
-  const managingPartnersList = partners.filter(p => p.isManagingPartner);
-  const managingPartnersText = managingPartnersList.length > 0
-    ? managingPartnersList.map((p, idx) => `<strong>${escapeHTML(p.name || 'N/A')}</strong> (${getPartyLabel(partners.indexOf(p))} Party)`).join(', ')
-    : partners.map((p, i) => `<strong>${escapeHTML(p.name || 'N/A')}</strong> (${getPartyLabel(i)} Party)`).join(', ');
-
-  // Bank authorized partners text
-  const bankAuthPartners = partners.filter(p => p.isBankAuthorized);
-  const bankAuthText = bankAuthPartners.length > 0
-    ? bankAuthPartners.map(p => `<strong>${escapeHTML(p.name || 'N/A')}</strong> (${getPartyLabel(partners.indexOf(p))} Party)`).join(', ')
-    : '';
-
-  // Build clause numbering dynamically
-  let clauseNum = objectives ? 8 : 7;
 
   const html = `<!DOCTYPE html>
 <html><head>
@@ -2359,12 +2415,20 @@ function openPrintView() {
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .no-print { display: none !important; }
   }
-  body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; line-height: 1.8; color: #000; max-width: 210mm; margin: 0 auto; padding: 2cm; }
-  h1 { text-align: center; font-size: 18pt; margin-bottom: 0.5em; text-decoration: underline; text-transform: uppercase; }
-  .clause { margin: 1.2em 0 0.4em; font-weight: bold; }
-  .indent { margin-left: 2em; }
-  .sig-block { margin-top: 4em; display: flex; justify-content: space-around; flex-wrap: wrap; gap: 2em; }
-  .sig-col { text-align: center; width: ${partners.length <= 3 ? '30%' : '22%'}; min-width: 150px; }
+  body { font-family: 'Times New Roman', Times, serif; font-size: 11pt; line-height: 1.8; color: #000; max-width: 210mm; margin: 0 auto; padding: 2cm; }
+  h1 { text-align: center; font-size: 16pt; margin-bottom: 0.5em; text-decoration: underline; text-transform: uppercase; font-weight: bold; }
+  .clause-head { margin: 1.2em 0 0.3em; font-weight: bold; font-size: 11pt; }
+  .body-text { margin: 0.3em 0; text-align: justify; }
+  .body-indent { margin: 0.3em 0; margin-left: 2em; text-align: justify; }
+  .and-separator { text-align: center; margin: 0.8em 0; }
+  .deed-witness { text-align: center; font-weight: bold; font-size: 12pt; margin: 1.5em 0 1em; }
+  .powers-list { margin: 0.5em 0 0.5em 2em; }
+  .powers-list li { margin-bottom: 0.4em; }
+  .capital-list, .profit-list { margin: 0.5em 0 0.5em 2em; list-style-type: disc; }
+  .capital-list li, .profit-list li { margin-bottom: 0.3em; }
+  .sig-table { width: 100%; margin-top: 4em; border-collapse: collapse; }
+  .sig-table td { vertical-align: top; width: 50%; padding: 0 1em; }
+  .sig-table p { margin: 0.2em 0; }
   .print-bar { position: fixed; top: 0; left: 0; right: 0; background: #1a1a2e; color: #e8d5b7; padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; z-index: 9999; font-family: sans-serif; font-size: 14px; }
   .print-bar button { background: #e8d5b7; color: #1a1a2e; border: none; padding: 0.5rem 1.5rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px; }
   .print-bar button:hover { background: #c9a96e; }
@@ -2379,53 +2443,108 @@ function openPrintView() {
 
 <h1>Partnership Deed</h1>
 
-<p>This deed of partnership is made on <strong>${deedDate}</strong> between:</p>
+<p class="body-text">This Deed of Partnership is made and executed on <strong>${deedDate}</strong>, by and between:</p>
 
 ${partnerIntros}
 
-<p class="clause">1. Name of the Firm</p>
-<p class="indent">The partnership firm shall be known as <strong>M/s. ${biz}</strong>.</p>
+<br>
 
-<p class="clause">2. Duration of the Partnership</p>
-<p class="indent">${escapeHTML(durationText)}</p>
+<p class="body-text"><strong>WHEREAS</strong> the parties here have mutually decided to start a partnership business of <strong>${nature}</strong> under the name and style as <strong>M/s. ${biz}</strong>.</p>
 
-<p class="clause">3. Nature of Business</p>
-<p class="indent">${nature || 'As mutually agreed.'}</p>
+<p class="body-text"><strong>AND WHEREAS</strong> it is felt expedient to reduce the terms and conditions agreed upon by the above said continuing partners into writing to avoid any misunderstandings amongst the partners at a future date.</p>
 
-${objectives ? `<p class="clause">4. Business Objectives</p><p class="indent">${objectives}</p>` : ''}
+<br>
 
-<p class="clause">${objectives ? '5' : '4'}. Place of Business</p>
-<p class="indent">${addr}</p>
+<p class="deed-witness">NOW THIS DEED OF PARTNERSHIP WITNESSETH AS FOLLOWS:</p>
 
-<p class="clause">${objectives ? '6' : '5'}. Capital Contribution</p>
-<p class="indent">${capitalLines}</p>
+<p class="clause-head">1. Name and Commencement</p>
+<p class="body-text">The partnership business shall be carried on under the name and style as <strong>M/s. ${biz}</strong>. The partnership firm shall come into existence with effect from <strong>${deedDate}</strong>.</p>
 
-<p class="clause">${objectives ? '7' : '6'}. Profit & Loss Sharing</p>
-<p class="indent">${profitLines}</p>
+<p class="clause-head">2. Duration</p>
+<p class="body-text">${durationText}</p>
 
-<p class="clause">${objectives ? '8' : '7'}. Managing Partners</p>
-<p class="indent">The partners ${managingPartnersText} shall be the Managing Partner(s) of the firm, authorized to manage the business, appoint personnel, negotiate transactions, enter into contracts, correspond with authorities, and perform all acts necessary for the conduct of the business.</p>
+<p class="clause-head">3. Principal Place of Business</p>
+<p class="body-text">The Principal place of business of the firm shall be at <strong>${addr}</strong>.</p>
 
-<p class="clause">${objectives ? '9' : '8'}. Banking</p>
-<p class="indent">${bankAuthText
-    ? `The bank account(s) of the firm shall be operated by ${bankAuthText}, who ${bankAuthPartners.length === 1 ? 'is' : 'are'} authorized for all bank-related transactions on behalf of the firm.`
-    : (d.bankOperation === 'either' ? 'Either partner may operate the bank account independently.' : 'All partners shall jointly operate the bank account.')
-  }</p>
+<p class="clause-head">4. Objectives of Partnership</p>
+<p class="body-text">The objective of partnership is to carry on the following business:</p>
+<p class="body-indent">${objectives}</p>
 
-<p class="clause">${objectives ? '10' : '9'}. Interest on Capital</p>
-<p class="indent">${escapeHTML(d.interestRate || '12')}% per annum.</p>
+<p class="clause-head">5. Capital Contribution of the Partners</p>
+<p class="body-text">The total capital contribution of the partners in the firm shall be in the following proportions:</p>
+<ul class="capital-list">
+${capitalBullets}
+</ul>
 
-<p class="clause">${objectives ? '11' : '10'}. Retirement</p>
-<p class="indent">Notice period of ${escapeHTML(d.noticePeriod || '3')} months.</p>
+<p class="clause-head">6. Managing Partners</p>
+<p class="body-text">The parties ${managingPartnersText} shall be the managing partner${pluralMgr ? 's' : ''} and ${pluralMgr ? 'are' : 'is'} authorized and empowered to do the following acts, deeds and things on behalf of the firm:</p>
+<ol class="powers-list">
+${managingPowersList}
+</ol>
+<p class="body-text">The managing partners are empowered to borrow money as and when found necessary for the business from any nationalized or schedule bank/banks or any other financial institutions from time to time and execute necessary actions at all the times.</p>
 
-<p class="clause">${objectives ? '12' : '11'}. Accounting Year</p>
-<p class="indent">Books shall be closed on ${escapeHTML(d.accountingYear || '31st March')} every year.</p>
+${additionalPoints.trim() ? `
+<p class="clause-head">7. Additional Terms</p>
+<p class="body-text">${escapeHTML(additionalPoints)}</p>
+` : ''}
 
-${d.additionalPoints ? `<p class="clause">${objectives ? '13' : '12'}. Additional Terms</p><p class="indent">${escapeHTML(d.additionalPoints)}</p>` : ''}
+<p class="clause-head">${nextClause}. Banking</p>
+<p class="body-text">${bankingText}</p>
 
-<div class="sig-block">
-  ${sigBlocks}
-</div>
+<p class="clause-head">${nextClause + 1}. Authorized Signatory</p>
+<p class="body-text">The partners, upon mutual consent of all the partners of this partnership deed appoint any another individual as the authorized signatory for entering into the agreements relating to sale and purchase of the land or/and building.</p>
+
+<p class="clause-head">${nextClause + 2}. Working Partners and Remuneration</p>
+<p class="body-text">That all the partners shall be working partners of the firm and shall be bound to devote full time and attention to the partnership business and shall be actively engaged in conducting the affairs of the firm and therefore it has been agreed to pay salary/remuneration for the services rendered as per the provisions under section 40(b) of the Income Tax Act, 1961.</p>
+<p class="body-text">For the purpose of above calculation of the remuneration shall be on the basis of profit as shown by the books and computed as provided in section 20 to 44D of chapter IV of the Income Tax Act, 1961 as increased by the aggregate of remuneration paid or payable to the partners of the firm if such remuneration has been deducted while computing the net profit.</p>
+
+<p class="clause-head">${nextClause + 3}. Interest on Capital</p>
+<p class="body-text">That the interest at the rate of ${interestRate}% per annum or as may be prescribed u/s.40(b)(iv) of the Income Tax Act, 1961 or may be any other applicable provisions as may be in force in the Income tax assessment of partnership firm for the relevant accounting year shall be payable to the partners on the amount standing to the credit of the account of the partners. Such interest shall be calculated and credited to the account of each partner at the close of the accounting year.</p>
+
+<p class="clause-head">${nextClause + 4}. Books of Accounts</p>
+<p class="body-text">The books of accounts of the partnership shall be maintained at the principal place of business and the same shall be closed on the <strong>${accountingYear}</strong> every year to arrive at the profit or loss for the period ending and to draw the profit and loss account and the balance sheet to know the financial position of the firm as on date.</p>
+
+<p class="clause-head">${nextClause + 5}. Profit and Loss Sharing</p>
+<p class="body-text">That the share of the profits or losses of partnership business after taking into account all business and incidental expenses will be as follows:</p>
+<ul class="profit-list">
+${profitBullets}
+</ul>
+
+<p class="clause-head">${nextClause + 6}. Retirement</p>
+<p class="body-text">Any partner desirous of retiring from the partnership during its continuance can exercise his/her right by giving ${noticePeriod} calendar months' notice to the other partner(s).</p>
+
+<p class="clause-head">${nextClause + 7}. Death, Retirement or Insolvency</p>
+<p class="body-text">Death, retirement or insolvency of any of the partners shall not dissolve the partnership. Further in case of death of any of the partners of the firm, the legal heirs as the case may be, shall be entitled to the capital account balance with the share of profit or loss up to the date of death of the partner only. The goodwill of the partnership business shall not be valued in the above circumstances.</p>
+
+<p class="clause-head">${nextClause + 8}. Arbitration</p>
+<p class="body-text">Any dispute that may arise between the partners shall be referred to an arbitrator whose award shall be final and binding on the parties MUTATIS MUTANDIS. The appointment of the arbitrator shall be on mutual consent.</p>
+
+<p class="clause-head">${nextClause + 9}. Applicable Law</p>
+<p class="body-text">The provision of the Partnership Act, 1932 as in vogue from time to time shall apply to this partnership except as otherwise stated above.</p>
+
+<p class="clause-head">${nextClause + 10}. Amendments</p>
+<p class="body-text">Any of the terms of this Deed may be amended, abandoned or otherwise be dealt with according to the necessities of the business and convenience of the partners and they shall be reduced to writing on Rs. 100/- stamp paper which shall have the same effect as if embodied in this Deed.</p>
+
+<br><br><br>
+
+<p class="body-text"><strong>IN WITNESS WHEREOF</strong> the parties hereto have set hands on this the <strong>${deedDate}</strong>.</p>
+
+<table class="sig-table">
+  <tr>
+    <td>
+      <p><strong>WITNESSES</strong></p>
+      <br>
+      <p>1. ________________________</p>
+      <br><br>
+      <p>2. ________________________</p>
+    </td>
+    <td>
+      <p><strong>Partners</strong></p>
+      <br>
+      ${partnerSigRows}
+    </td>
+  </tr>
+</table>
 
 </div>
 </body></html>`;
