@@ -126,7 +126,7 @@
 
 .draft-delete-btn:hover {
   color: var(--error);
-  background: rgba(192, 57, 43, 0.15);
+  background: rgba(220, 38, 38, 0.15);
 }
 
 .draft-item:hover {
@@ -135,9 +135,9 @@
 }
 
 .draft-item.active {
-  background: rgba(201, 169, 110, 0.12);
+  background: rgba(59, 94, 232, 0.12);
   color: var(--accent-light);
-  border-color: rgba(201, 169, 110, 0.2);
+  border-color: rgba(59, 94, 232, 0.2);
 }
 
 /* Sidebar footer */
@@ -174,9 +174,9 @@
 }
 
 .sidebar-nav-btn.active {
-  background: rgba(201, 169, 110, 0.1);
+  background: rgba(59, 94, 232, 0.15);
   color: var(--accent-light);
-  border-color: rgba(201, 169, 110, 0.2);
+  border-color: rgba(59, 94, 232, 0.2);
 }
 
 /* ── Content Area ── */

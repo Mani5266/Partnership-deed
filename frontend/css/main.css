@@ -54,6 +54,6 @@ body {
 
 /* ── Selection ── */
 ::selection {
-  background: rgba(201, 169, 110, 0.25);
+  background: rgba(59, 94, 232, 0.2);
   color: var(--text-main);
 }

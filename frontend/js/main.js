@@ -620,7 +620,7 @@ async function processBulkAadhaarOCR(files) {
     // Build a concise warning message listing each partner's missing fields
     const warnings = partnersMissingFields.map(p => `${p.label}: ${p.missing.join(', ')}`);
     const warningMsg = `Some fields could not be extracted. Please fill them manually:\n${warnings.join(' | ')}`;
-    showAlert('warning', warningMsg);
+    showAlert('error', warningMsg);
   }
 }
 
@@ -670,7 +670,7 @@ async function processAadhaarOCR(file, partnerIndex) {
     // Warn about any fields that could not be extracted
     if (missingFields.length > 0 && filledFields.length > 0) {
       const partyLabel = getPartyLabel(partnerIndex) + ' Party';
-      showAlert('warning', `${partyLabel}: Could not extract ${missingFields.join(', ')}. Please fill ${missingFields.length === 1 ? 'it' : 'them'} manually.`);
+      showAlert('error', `${partyLabel}: Could not extract ${missingFields.join(', ')}. Please fill ${missingFields.length === 1 ? 'it' : 'them'} manually.`);
     }
 
   } catch (err) {
@@ -2357,9 +2357,9 @@ function openPrintView() {
   .sig-table { width: 100%; margin-top: 4em; border-collapse: collapse; }
   .sig-table td { vertical-align: top; width: 50%; padding: 0 1em; }
   .sig-table p { margin: 0.2em 0; }
-  .print-bar { position: fixed; top: 0; left: 0; right: 0; background: #1a1a2e; color: #e8d5b7; padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; z-index: 9999; font-family: sans-serif; font-size: 14px; }
-  .print-bar button { background: #e8d5b7; color: #1a1a2e; border: none; padding: 0.5rem 1.5rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px; }
-  .print-bar button:hover { background: #c9a96e; }
+  .print-bar { position: fixed; top: 0; left: 0; right: 0; background: #0f1a2e; color: #b9c9fc; padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; z-index: 9999; font-family: sans-serif; font-size: 14px; }
+  .print-bar button { background: #b9c9fc; color: #0f1a2e; border: none; padding: 0.5rem 1.5rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px; }
+  .print-bar button:hover { background: #3b5ee8; }
   .print-body { margin-top: 40px; }
 </style>
 </head><body>
