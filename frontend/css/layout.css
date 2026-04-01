@@ -148,8 +148,9 @@
 
 .sidebar-nav {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--space-1);
   margin-bottom: var(--space-4);
+  overflow: hidden;
 }
 
 .sidebar-nav-btn {
@@ -157,13 +158,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  gap: 0.3rem;
+  padding: var(--space-2) 0.4rem;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
   color: rgba(255,255,255,0.5);
   font-size: var(--text-sm);
+  white-space: nowrap;
+  overflow: hidden;
   cursor: pointer;
   transition: var(--transition);
 }
@@ -177,6 +180,15 @@
   background: rgba(59, 94, 232, 0.15);
   color: var(--accent-light);
   border-color: rgba(59, 94, 232, 0.2);
+}
+
+.sidebar-logout-btn {
+  color: rgba(255, 130, 130, 0.7) !important;
+}
+
+.sidebar-logout-btn:hover {
+  background: rgba(220, 38, 38, 0.12) !important;
+  color: #ff8282 !important;
 }
 
 /* ── Content Area ── */
