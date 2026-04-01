@@ -1,7 +1,8 @@
 'use strict';
 
+const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
-require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
@@ -20,9 +21,6 @@ if (missing.length > 0) {
   );
 }
 
-// Public client (anon key) — used for operations that go through RLS
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
 // Admin client (service role key) — bypasses RLS, used for:
 // - Storage uploads (generated .docx files)
 // - Database operations (updating deed rows with doc_url)
@@ -33,4 +31,4 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
   },
 });
 
-module.exports = { supabase, supabaseAdmin };
+module.exports = { supabaseAdmin };

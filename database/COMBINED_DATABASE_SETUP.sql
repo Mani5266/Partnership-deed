@@ -5,7 +5,7 @@
 --
 -- This file creates the ENTIRE database schema for all 4 OneAsy apps:
 --
---   App 1: DeedForge (deed.oneasy.ai)
+--   App 1: OnEasy Partnership Deed (deed.oneasy.ai)
 --     Tables: deeds
 --     Storage: deed-docs (private)
 --
@@ -52,7 +52,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- STEP 2: SHARED UTILITY — update_updated_at_column() trigger function
--- Used by: DeedForge (deeds), OnEasy (offers, company_profiles)
+-- Used by: OnEasy Partnership Deed (deeds), OnEasy (offers, company_profiles)
 -- ─────────────────────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -65,7 +65,7 @@ $$ LANGUAGE plpgsql;
 
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- APP 1: DeedForge — Partnership Deed Generator
+-- APP 1: OnEasy — Partnership Deed Generator
 -- Subdomain: deed.oneasy.ai
 -- ═══════════════════════════════════════════════════════════════════════════════
 
@@ -245,7 +245,7 @@ CREATE INDEX IF NOT EXISTS idx_documents_certificate_id ON public.documents(cert
 -- STORAGE BUCKETS
 -- ═══════════════════════════════════════════════════════════════════════════════
 
--- DeedForge: deed-docs (private)
+-- OnEasy Partnership Deed: deed-docs (private)
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('deed-docs', 'deed-docs', false)
 ON CONFLICT (id) DO NOTHING;

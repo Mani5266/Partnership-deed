@@ -97,7 +97,7 @@ const generatePayloadSchema = z.object({
   accountingYear: z.string().max(50).optional().default('31st March'),
   additionalPoints: z.string().max(2000).optional().default(''),
 
-}).passthrough()
+}).strip()
   .superRefine((data, ctx) => {
     const partners = data.partners || [];
 

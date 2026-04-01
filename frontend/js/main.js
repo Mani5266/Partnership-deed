@@ -1370,12 +1370,18 @@ function saveDraft() {
     }
   });
 
-  const key = 'deedforge_draft';
+  const key = 'oneasy_draft';
   localStorage.setItem(key, JSON.stringify(draft));
 }
 
 function loadDraft() {
-  const key = 'deedforge_draft';
+  const key = 'oneasy_draft';
+  // Backward-compatible: migrate old key if present
+  const oldKey = 'deedforge_draft';
+  if (!localStorage.getItem(key) && localStorage.getItem(oldKey)) {
+    localStorage.setItem(key, localStorage.getItem(oldKey));
+    localStorage.removeItem(oldKey);
+  }
   const saved = localStorage.getItem(key);
   if (!saved) {
     renderPartners();
@@ -2556,6 +2562,12 @@ async function init() {
       window.location.href = '/login.html';
     }
   });
+
+  // ── Show user email in sidebar ──
+  const emailEl = document.getElementById('sidebarEmail');
+  if (emailEl && session.user?.email) {
+    emailEl.textContent = session.user.email;
+  }
 
   // ── BIND ALL UI HANDLERS FIRST (before any async operations) ──
   // This ensures buttons work even if async network calls are slow or fail

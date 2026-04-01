@@ -53,7 +53,7 @@ ALTER TABLE public.certificates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- STEP 4: RLS Policies — deeds (DeedForge)
+-- STEP 4: RLS Policies — deeds (OnEasy)
 -- ─────────────────────────────────────────────────────────────────────────────
 
 CREATE POLICY "Users can view own deeds"

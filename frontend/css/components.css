@@ -161,7 +161,7 @@
   gap: var(--space-3);
   cursor: pointer;
   font-size: var(--text-sm);
-  color: var(--text);
+  color: var(--text-main);
   user-select: none;
 }
 
@@ -228,6 +228,7 @@
 }
 
 .field select {
+  -webkit-appearance: none;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b6b80' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -290,13 +291,15 @@
 }
 
 .btn-accent {
-  background: var(--accent);
-  color: var(--primary);
+  background: #0f1a2e;
+  color: #ffffff;
   font-weight: 600;
+  border: none;
+  border-radius: 50px;
 }
 
 .btn-accent:hover:not(:disabled) {
-  background: var(--accent-dark);
+  background: #1a2d4d;
   color: white;
   transform: translateY(-1px);
 }
@@ -596,6 +599,7 @@
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.5);
+  -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
   z-index: 1000;
   display: flex;
@@ -1022,7 +1026,7 @@
 .partner-role-display-name {
   font-size: var(--text-sm);
   font-weight: 500;
-  color: var(--text);
+  color: var(--text-main);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1564,7 +1568,7 @@
   font-size: var(--text-sm);
   font-family: var(--font-body);
   font-weight: 500;
-  color: var(--text);
+  color: var(--text-main);
   cursor: pointer;
   transition: var(--transition);
   user-select: none;

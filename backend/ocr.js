@@ -2,9 +2,12 @@
 
 const log = require('./utils/logger');
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = 'gemini-2.0-flash';
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+
+function getGeminiUrl() {
+  const key = process.env.GEMINI_API_KEY;
+  return `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
+}
 
 // Max image size: 4MB (Gemini accepts up to 20MB but we keep it reasonable)
 const MAX_IMAGE_SIZE = 4 * 1024 * 1024;
@@ -34,6 +37,7 @@ Return ONLY a valid JSON object with these exact keys (no markdown, no explanati
  * @returns {Promise<Object>} Extracted data { name, fatherName, relation, dob, gender, address }
  */
 async function extractAadhaarData(imageBuffer, mimeType) {
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
   if (!GEMINI_API_KEY || GEMINI_API_KEY === 'your_gemini_api_key_here') {
     throw new Error('GEMINI_API_KEY is not configured. Please add your Gemini API key to backend/.env');
   }
@@ -74,10 +78,11 @@ async function extractAadhaarData(imageBuffer, mimeType) {
 
   log.info('Gemini OCR request', { imageSize: imageBuffer.length, mimeType });
 
-  const response = await fetch(GEMINI_URL, {
+  const response = await fetch(getGeminiUrl(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(requestBody),
+    signal: AbortSignal.timeout(30000),
   });
 
   if (!response.ok) {

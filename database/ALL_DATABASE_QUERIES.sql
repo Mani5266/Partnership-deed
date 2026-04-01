@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════════
--- DeedForge — Partnership Deed Generator
+-- OnEasy — Partnership Deed Generator
 -- COMPLETE DATABASE REFERENCE (All queries in one file)
 -- Project: Partnership-deed
 -- NO AUTHENTICATION — Open Access

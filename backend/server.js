@@ -130,7 +130,8 @@ app.post('/generate', generateLimiter, verifyAuth, async (req, res) => {
           await supabaseAdmin
             .from('deeds')
             .update({ doc_url: storagePath })
-            .eq('id', deedId);
+            .eq('id', deedId)
+            .eq('user_id', req.user.id);
         }
       }
     } catch (storageErr) {
@@ -157,6 +158,11 @@ app.post('/api/ocr/aadhaar', ocrLimiter, verifyAuth, async (req, res) => {
 
     if (!image || typeof image !== 'string') {
       return res.status(400).json({ success: false, error: 'Missing image data. Send base64-encoded image in "image" field.' });
+    }
+
+    // Pre-decode size check (base64 is ~33% larger than binary)
+    if (image.length > 5.5 * 1024 * 1024) {
+      return res.status(413).json({ success: false, error: 'Image data too large. Maximum image size is 4MB.' });
     }
 
     // Validate mime type
@@ -188,7 +194,7 @@ app.post('/api/ocr/aadhaar', ocrLimiter, verifyAuth, async (req, res) => {
     const statusCode = err.message.includes('not configured') ? 503 :
                         err.message.includes('rate limit') ? 429 :
                         err.message.includes('too large') ? 413 : 500;
-    res.status(statusCode).json({ success: false, error: err.message });
+    res.status(statusCode).json({ success: false, error: statusCode === 500 ? 'OCR processing failed. Please try again.' : err.message });
   }
 });
 
@@ -246,6 +252,7 @@ Return ONLY the formal business objective text (no quotes, no markdown, no expla
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(30000),
     });
 
     if (!response.ok) {
@@ -337,6 +344,7 @@ Return ONLY a JSON array like: ["Name One", "Name Two", "Name Three", "Name Four
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(30000),
     });
 
     if (!response.ok) {

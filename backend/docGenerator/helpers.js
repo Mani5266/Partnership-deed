@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  Paragraph, TextRun, AlignmentType, UnderlineType, PageBreak, BorderStyle
+  Paragraph, TextRun, AlignmentType, UnderlineType, BorderStyle
 } = require('docx');
 const { C } = require('./constants');
 
@@ -62,12 +62,6 @@ function blank(n = 1) {
   return Array.from({ length: n }, () => new Paragraph({ children: [new TextRun('')] }));
 }
 
-// ─── PAGE BREAK ──────────────────────────────────────────────────────────────
-
-function pageBreak() {
-  return new Paragraph({ children: [new PageBreak()] });
-}
-
 // ─── DOCUMENT TITLE ──────────────────────────────────────────────────────────
 
 function docTitle(text) {
@@ -126,5 +120,5 @@ function bullet(text, opts = {}) {
 
 module.exports = {
   singleBorder, allBorders, noBorders,
-  run, p, blank, pageBreak, docTitle, labelValue, clauseHead, body, bullet
+  run, p, blank, docTitle, labelValue, clauseHead, body, bullet
 };

@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
--- DeedForge — Partnership Deed Generator
+-- OnEasy — Partnership Deed Generator
 -- Supabase Database Setup (NO AUTH — Open Access)
 -- ═══════════════════════════════════════════════════════════════════
 

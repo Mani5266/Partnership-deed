@@ -1,7 +1,5 @@
 'use strict';
 
-const { AlignmentType, BorderStyle } = require('docx');
-
 // ─── PAGE CONSTANTS (A4) ─────────────────────────────────────────────────────
 const PAGE_W    = 11906;
 const PAGE_H    = 16838;

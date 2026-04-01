@@ -1,4 +1,4 @@
-# DeedForge - Partnership Deed Generator
+# OnEasy - Partnership Deed Generator
 
 A web application for generating Indian partnership deed documents (DOCX) with support for 2-20 partners, Aadhaar card OCR auto-fill, and cloud-saved drafts.
 
