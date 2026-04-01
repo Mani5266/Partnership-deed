@@ -341,14 +341,14 @@
       <p class="form-subheading">Enter your credentials to access the dashboard.</p>
 
       <div class="login-tabs">
-        <button class="login-tab active" id="tabLogin" onclick="switchTab('login')">Login</button>
-        <button class="login-tab" id="tabSignup" onclick="switchTab('signup')">Sign Up</button>
+        <button class="login-tab active" id="tabLogin">Login</button>
+        <button class="login-tab" id="tabSignup">Sign Up</button>
       </div>
 
       <div id="errorMsg" class="error-msg"></div>
       <div id="successMsg" class="success-msg"></div>
 
-      <form id="authForm" onsubmit="handleSubmit(event)">
+      <form id="authForm">
         <div class="form-group">
           <label for="email">Email Address</label>
           <input type="email" id="email" placeholder="name@company.com" required autocomplete="email">
@@ -368,7 +368,7 @@
       </form>
 
       <div class="form-footer" id="formFooter">
-        Don't have an account? <a onclick="switchTab('signup')">Sign up</a>
+        Don't have an account? <a id="footerLink">Sign up</a>
       </div>
     </div>
   </div>
@@ -384,13 +384,23 @@
       if (session) window.location.href = '/';
     });
 
+    function updateFooter() {
+      const formFooter = document.getElementById('formFooter');
+      if (mode === 'login') {
+        formFooter.innerHTML = 'Don\'t have an account? <a id="footerLink">Sign up</a>';
+        document.getElementById('footerLink').addEventListener('click', function() { switchTab('signup'); });
+      } else {
+        formFooter.innerHTML = 'Already have an account? <a id="footerLink">Login</a>';
+        document.getElementById('footerLink').addEventListener('click', function() { switchTab('login'); });
+      }
+    }
+
     function switchTab(tab) {
       mode = tab;
       const tabLogin = document.getElementById('tabLogin');
       const tabSignup = document.getElementById('tabSignup');
       const confirmGroup = document.getElementById('confirmPasswordGroup');
       const submitBtn = document.getElementById('submitBtn');
-      const formFooter = document.getElementById('formFooter');
       const heading = document.querySelector('.form-heading');
       const subheading = document.querySelector('.form-subheading');
       const passwordInput = document.getElementById('password');
@@ -405,7 +415,6 @@
         submitBtn.textContent = 'Sign In';
         heading.textContent = 'Sign in to your account';
         subheading.textContent = 'Enter your credentials to access the dashboard.';
-        formFooter.innerHTML = 'Don\'t have an account? <a onclick="switchTab(\'signup\')">Sign up</a>';
         passwordInput.autocomplete = 'current-password';
       } else {
         tabSignup.classList.add('active');
@@ -414,9 +423,9 @@
         submitBtn.textContent = 'Create Account';
         heading.textContent = 'Create your account';
         subheading.textContent = 'Enter your details to get started.';
-        formFooter.innerHTML = 'Already have an account? <a onclick="switchTab(\'login\')">Login</a>';
         passwordInput.autocomplete = 'new-password';
       }
+      updateFooter();
     }
 
     function showError(msg) {
@@ -478,8 +487,8 @@
           document.getElementById('tabLogin').classList.add('active');
           document.getElementById('tabSignup').classList.remove('active');
           document.getElementById('confirmPasswordGroup').style.display = 'none';
-          document.getElementById('formFooter').innerHTML = 'Don\'t have an account? <a onclick="switchTab(\'signup\')">Sign up</a>';
           document.getElementById('password').autocomplete = 'current-password';
+          updateFooter();
         } else {
           const { error } = await supabase.auth.signInWithPassword({ email, password });
 
@@ -499,6 +508,12 @@
         submitBtn.textContent = mode === 'login' ? 'Sign In' : 'Create Account';
       }
     }
+
+    // Wire up event listeners (no inline handlers)
+    document.getElementById('tabLogin').addEventListener('click', function() { switchTab('login'); });
+    document.getElementById('tabSignup').addEventListener('click', function() { switchTab('signup'); });
+    document.getElementById('authForm').addEventListener('submit', handleSubmit);
+    document.getElementById('footerLink').addEventListener('click', function() { switchTab('signup'); });
   </script>
 </body>
 </html>
