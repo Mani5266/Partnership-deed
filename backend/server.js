@@ -8,6 +8,7 @@ const helmet = require('helmet');
 const { generateDoc } = require('./docGenerator/index');
 const { supabaseAdmin } = require('./utils/supabase');
 const { validateGeneratePayload } = require('./validation');
+const { verifyAuth } = require('./middleware/auth');
 
 const { extractAadhaarData } = require('./ocr');
 const log = require('./utils/logger');
@@ -91,7 +92,7 @@ app.use(express.static(path.join(__dirname, '../frontend'), {
 
 // ── DOCUMENT GENERATION ──────────────────────────────────────────────────────
 
-app.post('/generate', generateLimiter, async (req, res) => {
+app.post('/generate', generateLimiter, verifyAuth, async (req, res) => {
   try {
     const validation = validateGeneratePayload(req.body);
     if (!validation.success) {
@@ -150,7 +151,7 @@ app.post('/generate', generateLimiter, async (req, res) => {
 // CRUD operations are handled directly by the frontend Supabase client.
 
 // ── AADHAAR OCR (Gemini Vision) ──────────────────────────────────────────
-app.post('/api/ocr/aadhaar', ocrLimiter, async (req, res) => {
+app.post('/api/ocr/aadhaar', ocrLimiter, verifyAuth, async (req, res) => {
   try {
     const { image, mimeType } = req.body;
 
@@ -192,7 +193,7 @@ app.post('/api/ocr/aadhaar', ocrLimiter, async (req, res) => {
 });
 
 // ── BUSINESS OBJECTIVE AI GENERATION (Gemini) ────────────────────────────────
-app.post('/api/generate-objective', aiLimiter, async (req, res) => {
+app.post('/api/generate-objective', aiLimiter, verifyAuth, async (req, res) => {
   try {
     const { description } = req.body;
 
@@ -284,7 +285,7 @@ Return ONLY the formal business objective text (no quotes, no markdown, no expla
 });
 
 // ── BUSINESS NAME AI SUGGESTIONS (Gemini) ────────────────────────────────────
-app.post('/api/suggest-business-names', aiLimiter, async (req, res) => {
+app.post('/api/suggest-business-names', aiLimiter, verifyAuth, async (req, res) => {
   try {
     const { natureOfBusiness } = req.body;
 

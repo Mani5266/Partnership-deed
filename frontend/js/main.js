@@ -1,4 +1,4 @@
-import { API_URL, supabase } from './config.js';
+import { API_URL, supabase, requireAuth, getUserId, getAccessToken } from './config.js';
 import { v, fmtDate, showAlert, escapeHTML } from './utils.js';
 
 let currentStep = 0;
@@ -30,9 +30,10 @@ function getPartyLabel(index) {
 // ── SUPABASE CRUD HELPERS ─────────────────────────────────────────────────────
 
 async function dbInsertDeed({ business_name, partner1_name, partner2_name, payload }) {
+  const user_id = await getUserId();
   const { data, error } = await supabase
     .from('deeds')
-    .insert({ business_name, partner1_name, partner2_name, payload })
+    .insert({ business_name, partner1_name, partner2_name, payload, user_id })
     .select()
     .single();
   if (error) throw error;
@@ -482,7 +483,10 @@ async function callOcrApi(file) {
 
   const response = await fetch('/api/ocr/aadhaar', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${await getAccessToken()}`,
+    },
     body: JSON.stringify({ image: base64, mimeType }),
   });
 
@@ -749,7 +753,10 @@ async function generateBusinessObjective() {
   try {
     const response = await fetch('/api/generate-objective', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${await getAccessToken()}`,
+      },
       body: JSON.stringify({ description }),
     });
 
@@ -806,7 +813,10 @@ async function suggestBusinessNames() {
   try {
     const response = await fetch('/api/suggest-business-names', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${await getAccessToken()}`,
+      },
       body: JSON.stringify({ natureOfBusiness }),
     });
 
@@ -1693,9 +1703,13 @@ async function generate() {
   // Generate DOCX via backend
   try {
     const generatePayload = { ...payload, _deedId: currentDeedId };
+    const token = await getAccessToken();
     const res = await fetch(API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(generatePayload)
     });
 
@@ -2532,6 +2546,17 @@ function initMobileMenu() {
 // ── INIT ─────────────────────────────────────────────────────────────────────
 
 async function init() {
+  // ── AUTH GUARD — redirect to login if not authenticated ──
+  const session = await requireAuth();
+  if (!session) return; // requireAuth redirects to /login.html
+
+  // Listen for auth state changes (logout, token expiry)
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === 'SIGNED_OUT') {
+      window.location.href = '/login.html';
+    }
+  });
+
   // ── BIND ALL UI HANDLERS FIRST (before any async operations) ──
   // This ensures buttons work even if async network calls are slow or fail
 
@@ -2552,6 +2577,12 @@ async function init() {
   // Sidebar: Navigation
   document.getElementById('navGenerator')?.addEventListener('click', () => switchPage('generator'));
   document.getElementById('navHistory')?.addEventListener('click', () => switchPage('history'));
+
+  // Logout button
+  document.getElementById('logoutBtn')?.addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    window.location.href = '/login.html';
+  });
 
   // Add partner button
   const addPartnerBtn = document.getElementById('addPartnerBtn');
