@@ -2363,8 +2363,8 @@ function openPrintView() {
   .sig-table { width: 100%; margin-top: 4em; border-collapse: collapse; }
   .sig-table td { vertical-align: top; width: 50%; padding: 0 1em; }
   .sig-table p { margin: 0.2em 0; }
-  .print-bar { position: fixed; top: 0; left: 0; right: 0; background: #0f172a; color: #eab308; padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; z-index: 9999; font-family: sans-serif; font-size: 14px; }
-  .print-bar button { background: #eab308; color: #0f172a; border: none; padding: 0.5rem 1.5rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px; }
+  .print-bar { position: fixed; top: 0; left: 0; right: 0; background: #0f172a; color: #f0b929; padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; z-index: 9999; font-family: sans-serif; font-size: 14px; }
+  .print-bar button { background: #f0b929; color: #0f172a; border: none; padding: 0.5rem 1.5rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px; }
   .print-bar button:hover { background: #ca8a04; }
   .print-body { margin-top: 40px; }
 </style>

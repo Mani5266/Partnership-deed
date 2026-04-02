@@ -4,10 +4,10 @@
   --primary-light: #1e293b;
   --primary-mid: #334155;
 
-  /* Accent — warm gold/amber */
-  --accent: #eab308;
-  --accent-light: #fef3c7;
-  --accent-dark: #a16207;
+  /* Accent — warm gold/amber (OnEasy unified palette) */
+  --accent: #f0b929;
+  --accent-light: #f9d056;
+  --accent-dark: #d9a21e;
   --accent-bg: #fefce8;
 
   /* Backgrounds */
@@ -24,7 +24,7 @@
   /* Sidebar-specific text */
   --sidebar-text: #f1f5f9;
   --sidebar-text-muted: #94a3b8;
-  --sidebar-text-accent: #eab308;
+  --sidebar-text-accent: #f0b929;
   --sidebar-border: rgba(255, 255, 255, 0.08);
   --sidebar-hover: rgba(255, 255, 255, 0.06);
   --sidebar-active: rgba(255, 255, 255, 0.1);
