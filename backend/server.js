@@ -49,7 +49,7 @@ app.use(helmet({
         (process.env.SUPABASE_URL || "https://placeholder.supabase.co").replace('https://', 'wss://'),
         "https://cdn.jsdelivr.net",
       ],
-      imgSrc: ["'self'", "data:"],
+      imgSrc: ["'self'", "data:", "blob:"],
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
       reportUri: '/csp-report',
@@ -90,6 +90,16 @@ app.use(express.static(path.join(__dirname, '../frontend'), {
   },
 }));
 
+// ── PUBLIC CONFIG — serves Supabase URL + anon key to frontend ───────────────
+// This is the SINGLE SOURCE OF TRUTH for frontend Supabase credentials.
+// Both login.js and config.js fetch from here instead of hardcoding values.
+app.get('/api/config', (_req, res) => {
+  res.json({
+    supabaseUrl: process.env.SUPABASE_URL,
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+  });
+});
+
 // ── DOCUMENT GENERATION ──────────────────────────────────────────────────────
 
 app.post('/generate', generateLimiter, verifyAuth, async (req, res) => {
@@ -109,8 +119,9 @@ app.post('/generate', generateLimiter, verifyAuth, async (req, res) => {
     const filename = `Partnership_Deed_${bizName}.docx`;
 
     // Upload to Supabase Storage
+    // Path: deeds/{userId}/{deedId}/filename.docx — matches storage RLS policies
     const deedId = validatedData._deedId || 'unknown';
-    const storagePath = `deeds/${deedId}/${filename}`;
+    const storagePath = `deeds/${req.user.id}/${deedId}/${filename}`;
     let doc_url = null;
 
     try {
@@ -221,22 +232,31 @@ app.post('/api/generate-objective', aiLimiter, verifyAuth, async (req, res) => {
 
     const prompt = `You are a legal document assistant specializing in Indian Partnership Deeds under the Indian Partnership Act, 1932.
 
-Given the following informal business description from a user, generate a formal, legally-phrased "Business Objective" clause suitable for inclusion in a Partnership Deed.
+Given the following informal business description from a user, generate TWO things:
 
-RULES:
+1. **nature**: A short "Nature of Business" summary (3-10 words, e.g. "Restaurants, Food Service, and Hospitality" or "Software Development and IT Consulting"). This is used in the WHEREAS clause.
+2. **objective**: A formal, legally-phrased "Business Objective" clause suitable for Clause 4 of a Partnership Deed.
+
+RULES FOR THE OBJECTIVE:
 1. The objective should be comprehensive and cover all reasonable activities related to the described business
 2. Use formal legal language (e.g., "buying, selling, trading, importing, exporting, dealing in...")
 3. Include both wholesale and retail where applicable
 4. Include online/offline/physical/digital channels where applicable
 5. Keep it as a single paragraph, 2-5 sentences maximum
 6. Do NOT include the business name or partner names
-7. Do NOT include any preamble, explanation, or markdown — return ONLY the objective text
-8. The output should be in English
-9. Make it specific to the business described, not generic
+7. The output should be in English
+8. Make it specific to the business described, not generic
+
+RULES FOR THE NATURE:
+1. Keep it very short — a concise category/industry label (3-10 words)
+2. Title Case (capitalize each major word)
+3. No articles (a, an, the) unless grammatically essential
+4. Examples: "Real Estate and Property Development", "Textile Trading and Garment Manufacturing", "Restaurants, Food Service, and Hospitality"
 
 User's business description: "${description.trim()}"
 
-Return ONLY the formal business objective text (no quotes, no markdown, no explanation):`;
+RESPOND WITH VALID JSON ONLY — no markdown, no explanation, no code fences:
+{"nature": "...", "objective": "..."}`;
 
     const requestBody = {
       contents: [{ parts: [{ text: prompt }] }],
@@ -274,16 +294,35 @@ Return ONLY the formal business objective text (no quotes, no markdown, no expla
     }
 
     // Clean up the response — remove markdown artifacts, extra whitespace
-    const objective = textContent
+    const cleaned = textContent
+      .replace(/```json\s*/gi, '')
       .replace(/```[a-z]*\s*/gi, '')
       .replace(/```/g, '')
-      .replace(/^["']|["']$/g, '')
-      .replace(/\n{2,}/g, '\n')
       .trim();
 
-    log.info('Business objective generated', { reqId: req.id, length: objective.length });
+    // Parse JSON response from AI
+    let nature = '';
+    let objective = '';
+    try {
+      const parsed = JSON.parse(cleaned);
+      nature = (parsed.nature || '').trim();
+      objective = (parsed.objective || '').trim();
+    } catch (_parseErr) {
+      // Fallback: if AI didn't return valid JSON, treat entire text as the objective
+      log.warn('AI returned non-JSON for objective, using fallback parsing', { text: cleaned.substring(0, 200) });
+      objective = cleaned
+        .replace(/^["']|["']$/g, '')
+        .replace(/\n{2,}/g, '\n')
+        .trim();
+    }
 
-    res.json({ success: true, objective });
+    if (!objective) {
+      return res.status(500).json({ success: false, error: 'AI returned an empty objective. Please try again.' });
+    }
+
+    log.info('Business objective generated', { reqId: req.id, natureLength: nature.length, objectiveLength: objective.length });
+
+    res.json({ success: true, objective, nature });
 
   } catch (err) {
     log.error('Objective generation error', { reqId: req.id, error: err.message });

@@ -1,16 +1,37 @@
 export const API_URL = '/generate';
 
-// Supabase credentials
-export const SUPABASE_URL = 'https://kihkewnaokmimfxceqox.supabase.co';
-export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpaGtld25hb2ttaW1meGNlcW94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5Mzg4MjYsImV4cCI6MjA5MDUxNDgyNn0._miUNQ5GqyFQLKW13p4-HGXq2yw4LimFboqPm352Vp4';
+// ── Supabase client — fetched from backend /api/config ───────────────────────
+// Single source of truth: credentials come from backend .env, not hardcoded here.
 
-// Create Supabase client with auth support
-export const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let supabase = null;
+let _initPromise = null;
+
+async function _initSupabase() {
+  const res = await fetch('/api/config');
+  if (!res.ok) throw new Error('Failed to load config from server');
+  const { supabaseUrl, supabaseAnonKey } = await res.json();
+  supabase = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+  return supabase;
+}
+
+/** Ensures Supabase client is initialized (called once, cached) */
+export function initSupabase() {
+  if (!_initPromise) {
+    _initPromise = _initSupabase();
+  }
+  return _initPromise;
+}
+
+/** Get the initialized Supabase client */
+export function getSupabase() {
+  return supabase;
+}
 
 // ── AUTH HELPERS ──────────────────────────────────────────────────────────────
 
 /** Get current session or null */
 export async function getSession() {
+  await initSupabase();
   const { data: { session } } = await supabase.auth.getSession();
   return session;
 }

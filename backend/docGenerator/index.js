@@ -38,8 +38,10 @@ function buildDeedContent(d) {
       age: pt.age || '___',
       address: pt.address || '_______________',
       relation: pt.relation || 'S/O',
-      capital: pt.capital || '___',
-      profit: pt.profit || '___',
+      capital: pt.capital ?? '___',
+      profit: pt.profit ?? '___',
+      isManagingPartner: pt.isManagingPartner || false,
+      isBankAuthorized: pt.isBankAuthorized || false,
     }));
   } else {
     // Legacy 2-partner format
@@ -50,8 +52,10 @@ function buildDeedContent(d) {
         age: d.partner1Age || '___',
         address: d.partner1Address || '_______________',
         relation: d.partner1Relation || 'S/O',
-        capital: d.partner1Capital || '___',
-        profit: d.partner1Profit || '___',
+        capital: d.partner1Capital ?? '___',
+        profit: d.partner1Profit ?? '___',
+        isManagingPartner: false,
+        isBankAuthorized: false,
       },
       {
         name: d.partner2Name || '_______________',
@@ -59,8 +63,10 @@ function buildDeedContent(d) {
         age: d.partner2Age || '___',
         address: d.partner2Address || '_______________',
         relation: d.partner2Relation || 'S/O',
-        capital: d.partner2Capital || '___',
-        profit: d.partner2Profit || '___',
+        capital: d.partner2Capital ?? '___',
+        profit: d.partner2Profit ?? '___',
+        isManagingPartner: false,
+        isBankAuthorized: false,
       },
     ];
   }
@@ -261,6 +267,9 @@ function buildDeedContent(d) {
     .map((pt, i) => ({ ...pt, _index: i }))
     .filter(pt => pt.isBankAuthorized);
 
+  // Connector: "and" for jointly (both must sign), "or" for either (any one can sign)
+  const bankConnector = bankOp === 'either' ? ' or ' : ' and ';
+
   if (bankAuthPartners.length > 0) {
     // Use specifically authorized partners
     const bankingRuns = [];
@@ -270,13 +279,17 @@ function buildDeedContent(d) {
       if (i > 0 && i < bankAuthPartners.length - 1) {
         bankingRuns.push(run(', ', { size: 11 }));
       } else if (i === bankAuthPartners.length - 1 && bankAuthPartners.length > 1) {
-        bankingRuns.push(run(' and ', { size: 11 }));
+        bankingRuns.push(run(bankConnector, { size: 11 }));
       }
       bankingRuns.push(run(pt.name, { bold: true, size: 11 }));
       bankingRuns.push(run(` (${getPartyLabel(pt._index)} Party)`, { size: 11 }));
     });
 
-    bankingRuns.push(run(`, who ${bankAuthPartners.length === 1 ? 'is' : 'are'} authorized for all bank-related transactions including the issuance and authorization of cheques, demand drafts, and any other banking instruments on behalf of the firm.`, { size: 11 }));
+    if (bankOp === 'either') {
+      bankingRuns.push(run(`, ${bankAuthPartners.length === 1 ? 'who is' : 'either of whom is'} independently authorized for all bank-related transactions including the issuance and authorization of cheques, demand drafts, and any other banking instruments on behalf of the firm.`, { size: 11 }));
+    } else {
+      bankingRuns.push(run(`, who ${bankAuthPartners.length === 1 ? 'is' : 'are jointly'} authorized for all bank-related transactions including the issuance and authorization of cheques, demand drafts, and any other banking instruments on behalf of the firm. No transaction shall be deemed valid unless signed by all the above-named authorized partners.`, { size: 11 }));
+    }
     content.push(body(bankingRuns));
   } else if (bankOp === 'jointly') {
     const bankingRuns = [];

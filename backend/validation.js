@@ -24,6 +24,8 @@ const partnerSchema = z.object({
     if (isNaN(num)) return 0;
     return num;
   }).optional().default(0),
+  isManagingPartner: z.boolean().optional().default(false),
+  isBankAuthorized: z.boolean().optional().default(false),
 });
 
 // ── Zod schema for the /generate endpoint payload ──
@@ -96,6 +98,11 @@ const generatePayloadSchema = z.object({
   noticePeriod: z.string().max(20).optional().default('3'),
   accountingYear: z.string().max(50).optional().default('31st March'),
   additionalPoints: z.string().max(2000).optional().default(''),
+
+  // Partnership duration
+  partnershipDuration: z.enum(['will', 'fixed']).optional().default('will'),
+  partnershipStartDate: z.string().max(50).optional().default(''),
+  partnershipEndDate: z.string().max(50).optional().default(''),
 
 }).strip()
   .superRefine((data, ctx) => {

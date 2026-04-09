@@ -1,4 +1,14 @@
-import { API_URL, supabase, requireAuth, getUserId, getAccessToken } from './config.js';
+import { API_URL, getSupabase, requireAuth, getUserId, getAccessToken } from './config.js';
+
+// Lazy accessor — always call getSupabase() instead of using `supabase` directly.
+// The client is guaranteed to be initialized after requireAuth() runs in init().
+const supabase = new Proxy({}, {
+  get(_target, prop) {
+    const client = getSupabase();
+    if (!client) throw new Error('Supabase client not initialized. Call requireAuth() first.');
+    return client[prop];
+  }
+});
 import { v, fmtDate, showAlert, escapeHTML } from './utils.js';
 
 let currentStep = 0;
@@ -138,11 +148,11 @@ function goTo(n) {
   const progress = document.querySelector('.progress-bar');
   if (progress) progress.setAttribute('data-step', n);
 
-  // Build capital/profit fields when entering step 2
-  if (n === 2) renderCapitalProfit();
-
-  // Build review on final step
-  if (n === 4) buildReview();
+  // Build review + deed preview on final step
+  if (n === 3) {
+    buildReview();
+    buildDeedPreview();
+  }
 
   // Scroll to top of content area
   const contentArea = document.querySelector('.content');
@@ -169,7 +179,7 @@ function restoreFromHash() {
     const parts = hash.split('/');
     const step = parseInt(parts[1]);
     switchPage('generator');
-    goTo(isNaN(step) ? 0 : Math.min(Math.max(step, 0), 4));
+    goTo(isNaN(step) ? 0 : Math.min(Math.max(step, 0), 3));
   }
   _skipHashPush = false;
 }
@@ -207,11 +217,24 @@ function renderPartnerRoles() {
 
   body.innerHTML = partners.map((p, i) => {
     const displayName = p.name?.trim() || `Partner ${i + 1}`;
+    const defaultPct = Math.round(100 / partners.length);
     return `
       <div class="partner-role-row" data-role-index="${i}">
         <div class="partner-role-name">
           <span class="partner-role-ordinal">${getPartyLabel(i)}</span>
           <span class="partner-role-display-name">${escapeHTML(displayName)}</span>
+        </div>
+        <div class="partner-role-inputs">
+          <div class="partner-role-field">
+            <label for="partnerCapital_${i}">Capital %</label>
+            <input type="number" id="partnerCapital_${i}" placeholder="${defaultPct}" min="0" max="100" step="0.01"
+              value="${v(`partnerCapital_${i}`) || ''}">
+          </div>
+          <div class="partner-role-field">
+            <label for="partnerProfit_${i}">Profit %</label>
+            <input type="number" id="partnerProfit_${i}" placeholder="${defaultPct}" min="0" max="100" step="0.01"
+              value="${v(`partnerProfit_${i}`) || ''}">
+          </div>
         </div>
         <div class="partner-role-checks">
           <label class="partner-role-toggle" title="Managing Partner of the firm">
@@ -237,6 +260,20 @@ function renderPartnerRoles() {
       debouncedServerSave();
     });
   });
+}
+
+// ── BANK OPERATION HINT ─────────────────────────────────────────────────────
+
+function updateBankOperationHint() {
+  const select = document.getElementById('bankOperation');
+  const hint = document.getElementById('bankOperationHint');
+  if (!select || !hint) return;
+
+  if (select.value === 'either') {
+    hint.textContent = 'Any one authorized partner can independently sign cheques and banking instruments.';
+  } else {
+    hint.textContent = 'All authorized partners must jointly sign cheques and banking instruments together.';
+  }
 }
 
 // Update partner display names in the roles checklist when name fields change
@@ -337,6 +374,19 @@ function renderPartners() {
 
   // Render shared roles checklist
   renderPartnerRoles();
+
+  // Bind capital/profit events within roles checklist
+  bindCapitalProfitEvents();
+
+  // Restore profit-same-as-capital state
+  const profitSameCheckbox = document.getElementById('profitSameAsCapital');
+  if (profitSameCheckbox && profitSameCheckbox.checked) {
+    syncProfitFromCapital();
+    setProfitFieldsDisabled(true);
+  }
+
+  updateCapitalHint();
+  updateProfitHint();
 }
 
 function bindPartnerEvents() {
@@ -728,6 +778,41 @@ function applyExtractedToCard(partnerIndex, extracted) {
 
 // ── AI BUSINESS OBJECTIVE GENERATION ────────────────────────────────────────
 
+/**
+ * Show a temporary "AI-filled" badge next to a form field.
+ * The badge fades out when the user manually edits the field.
+ */
+function showAiFilledBadge(inputEl) {
+  if (!inputEl) return;
+  const field = inputEl.closest('.field');
+  if (!field) return;
+
+  // Remove any existing badge first
+  const existing = field.querySelector('.ai-filled-badge');
+  if (existing) existing.remove();
+
+  const badge = document.createElement('span');
+  badge.className = 'ai-filled-badge';
+  badge.textContent = 'AI-filled';
+
+  // Insert badge after the label
+  const label = field.querySelector('label');
+  if (label) {
+    label.appendChild(badge);
+  }
+
+  // Briefly highlight the input
+  inputEl.classList.add('ai-filled-highlight');
+  setTimeout(() => inputEl.classList.remove('ai-filled-highlight'), 2000);
+
+  // Remove badge when user manually edits the field
+  function removeBadge() {
+    badge.remove();
+    inputEl.removeEventListener('input', removeBadge);
+  }
+  inputEl.addEventListener('input', removeBadge);
+}
+
 async function generateBusinessObjective() {
   const descInput = document.getElementById('businessDescriptionInput');
   const genBtn = document.getElementById('generateObjectiveBtn');
@@ -770,7 +855,15 @@ async function generateBusinessObjective() {
     if (objectiveTextarea) objectiveTextarea.value = result.objective;
     if (outputEl) outputEl.classList.remove('hidden');
 
-    showAlert('success', 'Business objective generated. Review and edit if needed.');
+    // Auto-fill Nature of Business if AI returned it
+    const natureInput = document.getElementById('natureOfBusiness');
+    if (result.nature && natureInput) {
+      natureInput.value = result.nature;
+      // Show AI-filled indicator
+      showAiFilledBadge(natureInput);
+    }
+
+    showAlert('success', 'Business objective generated. Nature of Business auto-filled. Review and edit if needed.');
 
     // Trigger auto-save
     saveDraft();
@@ -961,27 +1054,24 @@ function toggleDurationFields() {
   }
 }
 
-// ── DYNAMIC CAPITAL & PROFIT RENDERING ──────────────────────────────────────
+// ── DYNAMIC CAPITAL & PROFIT EVENT BINDING ──────────────────────────────────
 
-function renderCapitalProfit() {
-  syncPartnersFromDOM();
-
-  const capitalContainer = document.getElementById('capitalContainer');
-  const profitContainer = document.getElementById('profitContainer');
+/**
+ * Bind input events on capital/profit fields inside partner cards.
+ * Capital fields: update hint, sync to profit if checkbox checked, auto-save.
+ * Profit fields: update hint, auto-save.
+ * Also binds the "profit same as capital" checkbox.
+ */
+function bindCapitalProfitEvents() {
+  const rolesBody = document.getElementById('partnerRolesBody');
   const profitSameCheckbox = document.getElementById('profitSameAsCapital');
+  if (!rolesBody) return;
 
-  if (capitalContainer) {
-    capitalContainer.innerHTML = partners.map((p, i) => `
-      <div class="field">
-        <label for="partnerCapital_${i}">Partner ${i + 1} Capital (%)${p.name ? ' - ' + escapeHTML(p.name) : ''}</label>
-        <input type="number" id="partnerCapital_${i}" placeholder="e.g. ${Math.round(100 / partners.length)}" min="0" max="100" step="0.01"
-          value="${v(`partnerCapital_${i}`) || ''}">
-      </div>
-    `).join('');
-
-    // Bind capital hint updates + sync to profit if checkbox is checked
-    capitalContainer.querySelectorAll('input').forEach(el => {
-      el.addEventListener('input', () => {
+  // Bind capital input events
+  partners.forEach((_, i) => {
+    const capEl = document.getElementById(`partnerCapital_${i}`);
+    if (capEl) {
+      capEl.addEventListener('input', () => {
         updateCapitalHint();
         if (profitSameCheckbox && profitSameCheckbox.checked) {
           syncProfitFromCapital();
@@ -989,27 +1079,17 @@ function renderCapitalProfit() {
         saveDraft();
         debouncedServerSave();
       });
-    });
-  }
+    }
 
-  if (profitContainer) {
-    profitContainer.innerHTML = partners.map((p, i) => `
-      <div class="field">
-        <label for="partnerProfit_${i}">Partner ${i + 1} Share (%)${p.name ? ' - ' + escapeHTML(p.name) : ''}</label>
-        <input type="number" id="partnerProfit_${i}" placeholder="e.g. ${Math.round(100 / partners.length)}" min="0" max="100" step="0.01"
-          value="${v(`partnerProfit_${i}`) || ''}">
-      </div>
-    `).join('');
-
-    // Bind profit hint updates
-    profitContainer.querySelectorAll('input').forEach(el => {
-      el.addEventListener('input', () => {
+    const profEl = document.getElementById(`partnerProfit_${i}`);
+    if (profEl) {
+      profEl.addEventListener('input', () => {
         updateProfitHint();
         saveDraft();
         debouncedServerSave();
       });
-    });
-  }
+    }
+  });
 
   // Bind the "same as capital" checkbox
   if (profitSameCheckbox) {
@@ -1021,16 +1101,7 @@ function renderCapitalProfit() {
       saveDraft();
       debouncedServerSave();
     };
-
-    // Restore state: if already checked, apply immediately
-    if (profitSameCheckbox.checked) {
-      syncProfitFromCapital();
-      setProfitFieldsDisabled(true);
-    }
   }
-
-  updateCapitalHint();
-  updateProfitHint();
 }
 
 // Copy capital values into profit fields and update hint
@@ -1043,13 +1114,14 @@ function syncProfitFromCapital() {
   updateProfitHint();
 }
 
-// Enable or disable profit input fields
+// Enable or disable profit input fields (inside partner cards)
 function setProfitFieldsDisabled(disabled) {
-  const profitContainer = document.getElementById('profitContainer');
-  if (!profitContainer) return;
-  profitContainer.querySelectorAll('input').forEach(el => {
-    el.disabled = disabled;
-    el.style.opacity = disabled ? '0.55' : '';
+  partners.forEach((_, i) => {
+    const el = document.getElementById(`partnerProfit_${i}`);
+    if (el) {
+      el.disabled = disabled;
+      el.style.opacity = disabled ? '0.55' : '';
+    }
   });
 }
 
@@ -1159,6 +1231,219 @@ function buildReview() {
   }
 }
 
+// ── INLINE DEED PREVIEW (editable, scrollable) ──────────────────────────────
+
+function buildDeedPreview() {
+  syncPartnersFromDOM();
+  const d = getPayload();
+  const container = document.getElementById('deedPreviewContainer');
+  if (!container) return;
+
+  const biz = escapeHTML(d.businessName || '_______________');
+  const deedDate = fmtDate(d.deedDate) || 'the _______ day of _______ 20___';
+  const addr = escapeHTML(d.registeredAddress || '_______________');
+  const nature = escapeHTML(d.natureOfBusiness || '_______________');
+  const objectives = escapeHTML(d.businessObjectives || '_______________');
+  const interestRate = escapeHTML(d.interestRate || '12');
+  const noticePeriod = escapeHTML(d.noticePeriod || '3');
+  const accountingYear = escapeHTML(d.accountingYear || '31st March');
+  const bankOp = d.bankOperation || 'jointly';
+  const additionalPoints = d.additionalPoints || '';
+
+  // Partner intro paragraphs
+  const partnerIntros = partners.map((p, i) => {
+    const name = escapeHTML(p.name || '_______________');
+    const rel = escapeHTML(p.relation || 'S/O');
+    const father = escapeHTML(p.fatherName || '_______________');
+    const age = escapeHTML(String(p.age || '___'));
+    const address = escapeHTML(p.address || '_______________');
+    const label = getPartyLabel(i);
+    let html = `<p><strong>${name}</strong> ${rel} <strong>${father}</strong> Aged <strong>${age}</strong> Years, residing at ${address}.</p>`;
+    html += `<p>(Hereinafter called as the <strong><em>"${label} Party"</em></strong>)</p>`;
+    if (i < partners.length - 1) {
+      html += `<p style="text-align:center"><strong>AND</strong></p>`;
+    }
+    return html;
+  }).join('\n');
+
+  // Capital contribution bullets
+  const capitalBullets = partners.map((p, i) => {
+    const name = escapeHTML(p.name || '_______________');
+    const label = getPartyLabel(i);
+    const cap = escapeHTML(d[`partnerCapital_${i}`] || v(`partnerCapital_${i}`) || '___');
+    return `<li><strong>${label} Party (${name}):</strong> ${cap}%</li>`;
+  }).join('\n');
+
+  // Profit sharing bullets
+  const profitBullets = partners.map((p, i) => {
+    const name = escapeHTML(p.name || '_______________');
+    const label = getPartyLabel(i);
+    const prof = escapeHTML(d[`partnerProfit_${i}`] || v(`partnerProfit_${i}`) || '___');
+    return `<li><strong>${name}</strong> (${label} Party) - ${prof}%</li>`;
+  }).join('\n');
+
+  // Duration
+  let durationText = 'The duration of the firm shall be at WILL of the partners.';
+  if (d.partnershipDuration === 'fixed' && d.partnershipStartDate && d.partnershipEndDate) {
+    durationText = `The duration of the partnership shall be for a fixed period commencing from <strong>${fmtDate(d.partnershipStartDate)}</strong> and ending on <strong>${fmtDate(d.partnershipEndDate)}</strong>, unless terminated earlier by mutual consent of all the partners or by operation of law.`;
+  }
+
+  // Managing Partners
+  const managingPartnersList = partners
+    .map((p, i) => ({ ...p, _index: i }))
+    .filter(p => p.isManagingPartner);
+  const effectiveManagingPartners = managingPartnersList.length > 0
+    ? managingPartnersList
+    : partners.map((p, i) => ({ ...p, _index: i }));
+
+  const managingPartnersText = effectiveManagingPartners.map((p, i) => {
+    const sep = i > 0 ? ' &amp; ' : '';
+    return `${sep}<strong>${escapeHTML(p.name || 'N/A')}</strong> (${getPartyLabel(p._index)} Party)`;
+  }).join('');
+
+  const pluralMgr = effectiveManagingPartners.length > 1;
+  const managingPowers = [
+    'To manage the business of the partnership firm with a power to appoint remuneration, etc. They shall also have the power to dispense with the service of such personnel that are not required.',
+    'To negotiate any business transactions and enter into agreements on behalf of the firm and to enter into all/any contracts and sub-contracts on either way. To enter to the sale and purchase agreements relating to the objective of the business.',
+    'To enter into correspondence with government departments, quasi-govt departments, public and private organizations, individuals, etc regarding the partnership business.',
+    'To incur all expenses necessary for the conduct of the business.',
+    'To borrow moneys against credit of partnership, if necessary by hypothecating or creating a charge upon the assets of the partnership.',
+    'To be in custody of all account books, documents, negotiable instruments and all other documents pertaining to the business.',
+    'To look after the proper upkeep of books of accounts required for the business and to supervise the same at regular intervals.',
+    'To open bank account/accounts in the name of the partnership firm.',
+    'To put all the monies, cheques etc., which are not immediately required for the conduct of the business into the bank account, opened for the Partnership business.',
+    'To do all other acts and things that are necessary for carrying on the business.',
+  ];
+  const managingPowersList = managingPowers.map(p => `<li>${p}</li>`).join('\n');
+
+  // Banking
+  const bankAuthPartners = partners
+    .map((p, i) => ({ ...p, _index: i }))
+    .filter(p => p.isBankAuthorized);
+  const bankConnector = bankOp === 'either' ? ' or ' : ' and ';
+
+  let bankingText = '';
+  if (bankAuthPartners.length > 0) {
+    const bankNames = bankAuthPartners.map((p, i) => {
+      let sep = '';
+      if (i > 0 && i < bankAuthPartners.length - 1) sep = ', ';
+      else if (i === bankAuthPartners.length - 1 && bankAuthPartners.length > 1) sep = bankConnector;
+      return `${sep}<strong>${escapeHTML(p.name || 'N/A')}</strong> (${getPartyLabel(p._index)} Party)`;
+    }).join('');
+    if (bankOp === 'either') {
+      bankingText = `The firm shall maintain one or more banking accounts as may be decided by the partners from time to time. The said bank accounts shall be operated by ${bankNames}, ${bankAuthPartners.length === 1 ? 'who is' : 'either of whom is'} independently authorized for all bank-related transactions including the issuance and authorization of cheques, demand drafts, and any other banking instruments on behalf of the firm.`;
+    } else {
+      bankingText = `The firm shall maintain one or more banking accounts as may be decided by the partners from time to time. The said bank accounts shall be operated by ${bankNames}, who ${bankAuthPartners.length === 1 ? 'is' : 'are jointly'} authorized for all bank-related transactions including the issuance and authorization of cheques, demand drafts, and any other banking instruments on behalf of the firm. No transaction shall be deemed valid unless signed by all the above-named authorized partners.`;
+    }
+  } else {
+    bankingText = 'The firm shall maintain one or more banking accounts as may be decided by the partners from time to time. The said bank accounts may be operated by any partner independently.';
+  }
+
+  const nextClause = additionalPoints.trim() ? 8 : 7;
+
+  const partnerSigRows = partners.map((p, i) => `
+    <p>${i + 1}. ${escapeHTML(p.name || '________________________')}</p>
+    <p style="margin-left:1em">(${getPartyLabel(i)} Party)</p>
+  `).join('');
+
+  container.innerHTML = `
+    <h1 style="text-align:center; font-size:16pt; text-decoration:underline; text-transform:uppercase; font-weight:bold; margin-bottom:0.5em;">Partnership Deed</h1>
+
+    <p>This Deed of Partnership is made and executed on <strong>${deedDate}</strong>, by and between:</p>
+
+    ${partnerIntros}
+
+    <br>
+
+    <p><strong>WHEREAS</strong> the parties here have mutually decided to start a partnership business of <strong>${nature}</strong> under the name and style as <strong>M/s. ${biz}</strong>.</p>
+
+    <p><strong>AND WHEREAS</strong> it is felt expedient to reduce the terms and conditions agreed upon by the above said continuing partners into writing to avoid any misunderstandings amongst the partners at a future date.</p>
+
+    <br>
+
+    <p style="text-align:center; font-weight:bold; font-size:12pt; margin:1.5em 0 1em;">NOW THIS DEED OF PARTNERSHIP WITNESSETH AS FOLLOWS:</p>
+
+    <p><strong>1. Name and Commencement</strong></p>
+    <p>The partnership business shall be carried on under the name and style as <strong>M/s. ${biz}</strong>. The partnership firm shall come into existence with effect from <strong>${deedDate}</strong>.</p>
+
+    <p><strong>2. Duration</strong></p>
+    <p>${durationText}</p>
+
+    <p><strong>3. Principal Place of Business</strong></p>
+    <p>The Principal place of business of the firm shall be at <strong>${addr}</strong>.</p>
+
+    <p><strong>4. Objectives of Partnership</strong></p>
+    <p>The objective of partnership is to carry on the following business:</p>
+    <p style="margin-left:2em">${objectives}</p>
+
+    <p><strong>5. Capital Contribution of the Partners</strong></p>
+    <p>The total capital contribution of the partners in the firm shall be in the following proportions:</p>
+    <ul>${capitalBullets}</ul>
+
+    <p><strong>6. Managing Partners</strong></p>
+    <p>The parties ${managingPartnersText} shall be the managing partner${pluralMgr ? 's' : ''} and ${pluralMgr ? 'are' : 'is'} authorized and empowered to do the following acts, deeds and things on behalf of the firm:</p>
+    <ol>${managingPowersList}</ol>
+    <p>The managing partners are empowered to borrow money as and when found necessary for the business from any nationalized or schedule bank/banks or any other financial institutions from time to time and execute necessary actions at all the times.</p>
+
+    ${additionalPoints.trim() ? `
+    <p><strong>7. Additional Terms</strong></p>
+    <p>${escapeHTML(additionalPoints)}</p>
+    ` : ''}
+
+    <p><strong>${nextClause}. Banking</strong></p>
+    <p>${bankingText}</p>
+
+    <p><strong>${nextClause + 1}. Authorized Signatory</strong></p>
+    <p>The partners, upon mutual consent of all the partners of this partnership deed appoint any another individual as the authorized signatory for entering into the agreements relating to sale and purchase of the land or/and building.</p>
+
+    <p><strong>${nextClause + 2}. Working Partners and Remuneration</strong></p>
+    <p>That all the partners shall be working partners of the firm and shall be bound to devote full time and attention to the partnership business and shall be actively engaged in conducting the affairs of the firm and therefore it has been agreed to pay salary/remuneration for the services rendered as per the provisions under section 40(b) of the Income Tax Act, 1961.</p>
+
+    <p><strong>${nextClause + 3}. Interest on Capital</strong></p>
+    <p>That the interest at the rate of ${interestRate}% per annum or as may be prescribed u/s.40(b)(iv) of the Income Tax Act, 1961 shall be payable to the partners on the amount standing to the credit of the account of the partners.</p>
+
+    <p><strong>${nextClause + 4}. Books of Accounts</strong></p>
+    <p>The books of accounts of the partnership shall be maintained at the principal place of business and the same shall be closed on the <strong>${accountingYear}</strong> every year.</p>
+
+    <p><strong>${nextClause + 5}. Profit and Loss Sharing</strong></p>
+    <p>That the share of the profits or losses of partnership business after taking into account all business and incidental expenses will be as follows:</p>
+    <ul>${profitBullets}</ul>
+
+    <p><strong>${nextClause + 6}. Retirement</strong></p>
+    <p>Any partner desirous of retiring from the partnership during its continuance can exercise his/her right by giving ${noticePeriod} calendar months' notice to the other partner(s).</p>
+
+    <p><strong>${nextClause + 7}. Death, Retirement or Insolvency</strong></p>
+    <p>Death, retirement or insolvency of any of the partners shall not dissolve the partnership.</p>
+
+    <p><strong>${nextClause + 8}. Arbitration</strong></p>
+    <p>Any dispute that may arise between the partners shall be referred to an arbitrator whose award shall be final and binding on the parties MUTATIS MUTANDIS.</p>
+
+    <p><strong>${nextClause + 9}. Applicable Law</strong></p>
+    <p>The provision of the Partnership Act, 1932 as in vogue from time to time shall apply to this partnership except as otherwise stated above.</p>
+
+    <p><strong>${nextClause + 10}. Amendments</strong></p>
+    <p>Any of the terms of this Deed may be amended, abandoned or otherwise be dealt with according to the necessities of the business and convenience of the partners and they shall be reduced to writing on Rs. 100/- stamp paper.</p>
+
+    <br><br>
+
+    <p><strong>IN WITNESS WHEREOF</strong> the parties hereto have set hands on this the <strong>${deedDate}</strong>.</p>
+
+    <table style="width:100%; margin-top:2em; border-collapse:collapse;">
+      <tr>
+        <td style="vertical-align:top; width:50%; padding:0 1em;">
+          <p><strong>WITNESSES</strong></p><br>
+          <p>1. ________________________</p><br>
+          <p>2. ________________________</p>
+        </td>
+        <td style="vertical-align:top; width:50%; padding:0 1em;">
+          <p><strong>Partners</strong></p><br>
+          ${partnerSigRows}
+        </td>
+      </tr>
+    </table>
+  `;
+}
+
 // ── CLIENT-SIDE VALIDATION ───────────────────────────────────────────────────
 
 function validate() {
@@ -1242,7 +1527,7 @@ function validate() {
   const capTotal = capValues.reduce((s, c) => s + c, 0);
   const hasCapValues = capValues.some(c => c > 0);
   if (hasCapValues && Math.abs(capTotal - 100) > 0.01) {
-    errors.push({ step: 2, label: 'Capital Contributions' });
+    errors.push({ step: 0, label: 'Capital Contributions' });
     // Mark the last capital field
     const lastCapId = `partnerCapital_${partners.length - 1}`;
     markFieldError(lastCapId, 'Capital contributions must total 100%');
@@ -1253,7 +1538,7 @@ function validate() {
   const profTotal = profValues.reduce((s, c) => s + c, 0);
   const hasProfValues = profValues.some(c => c > 0);
   if (hasProfValues && Math.abs(profTotal - 100) > 0.01) {
-    errors.push({ step: 2, label: 'Profit Sharing' });
+    errors.push({ step: 0, label: 'Profit Sharing' });
     const lastProfId = `partnerProfit_${partners.length - 1}`;
     markFieldError(lastProfId, 'Profit sharing must total 100%');
   }
@@ -1406,7 +1691,6 @@ function loadDraft() {
     }
 
     renderPartners();
-    renderCapitalProfit(); // Ensure capital/profit inputs exist before restoring values
 
     // Restore non-partner form fields (including capital/profit values)
     Object.keys(data).forEach(id => {
@@ -1443,6 +1727,7 @@ function loadDraft() {
     // Restore duration field visibility
     toggleDurationFields();
 
+    updateBankOperationHint();
     updateCapitalHint();
     updateProfitHint();
     goTo(parsed.currentStep || 0);
@@ -1463,7 +1748,6 @@ function resetForm() {
     { name: '', relation: 'S/O', fatherName: '', age: '', address: '', isManagingPartner: false, isBankAuthorized: false },
   ];
   renderPartners();
-  renderCapitalProfit();
 
   // Clear ALL form fields (business details, clauses, capital, profit, etc.)
   document.querySelectorAll('.form-card input, .form-card select, .form-card textarea').forEach(el => {
@@ -1739,25 +2023,17 @@ async function generate() {
     if (match) filename = match[1];
 
     const blob = await res.blob();
-    const docxBlob = new Blob([blob], {
-      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    });
 
-    const url = URL.createObjectURL(docxBlob);
+    // Trigger download
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
-    a.classList.add('hidden');
     document.body.appendChild(a);
-    setTimeout(() => {
-      a.click();
-      setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }, 150);
-    }, 0);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 150);
 
-    showAlert('success', 'Partnership Deed downloaded & saved!');
+    showAlert('success', 'Document generated and downloaded!');
 
     // Show PDF button after successful generation
     const pdfBtn = document.getElementById('pdfBtn');
@@ -1766,6 +2042,7 @@ async function generate() {
     fetchSidebarDrafts();
     if (currentPage === 'history') fetchDeeds();
   } catch (e) {
+    console.error('Generate error:', e);
     showAlert('error', e.message);
   } finally {
     if (generateBtn) generateBtn.disabled = false;
@@ -1784,6 +2061,7 @@ function formatCardDate(isoStr) {
 async function fetchDeeds() {
   const gridEl = document.getElementById('deedGrid');
   const emptyEl = document.getElementById('gridEmpty');
+  if (!gridEl || !emptyEl) return;
 
   emptyEl.classList.add('hidden');
   gridEl.innerHTML = '<p class="grid-empty">Loading deed history\u2026</p>';
@@ -1894,7 +2172,6 @@ function restorePartnersFromPayload(payload) {
     ];
   }
   renderPartners();
-  renderCapitalProfit(); // Ensure capital/profit inputs exist in DOM before setting values
 
   // Restore capital/profit values
   partners.forEach((_, i) => {
@@ -1960,7 +2237,7 @@ async function regenerateDeed(id) {
     updateCapitalHint();
     updateProfitHint();
     switchPage('generator');
-    goTo(4); // Go to review step
+    goTo(3); // Go to review step
   } catch (e) {
     console.error('Failed to load deed:', e);
   }
@@ -2309,15 +2586,22 @@ function openPrintView() {
     .map((p, i) => ({ ...p, _index: i }))
     .filter(p => p.isBankAuthorized);
 
+  // Connector: "and" for jointly (both must sign), "or" for either (any one can sign)
+  const bankConnector = bankOp === 'either' ? ' or ' : ' and ';
+
   let bankingText = '';
   if (bankAuthPartners.length > 0) {
     const bankNames = bankAuthPartners.map((p, i) => {
       let sep = '';
       if (i > 0 && i < bankAuthPartners.length - 1) sep = ', ';
-      else if (i === bankAuthPartners.length - 1 && bankAuthPartners.length > 1) sep = ' and ';
+      else if (i === bankAuthPartners.length - 1 && bankAuthPartners.length > 1) sep = bankConnector;
       return `${sep}<strong>${escapeHTML(p.name || 'N/A')}</strong> (${getPartyLabel(p._index)} Party)`;
     }).join('');
-    bankingText = `The firm shall maintain one or more banking accounts (e.g., current accounts, overdrafts, cash credit, etc.) as may be decided by the partners from time to time. The said bank accounts shall be operated by ${bankNames}, who ${bankAuthPartners.length === 1 ? 'is' : 'are'} authorized for all bank-related transactions including the issuance and authorization of cheques, demand drafts, and any other banking instruments on behalf of the firm.`;
+    if (bankOp === 'either') {
+      bankingText = `The firm shall maintain one or more banking accounts (e.g., current accounts, overdrafts, cash credit, etc.) as may be decided by the partners from time to time. The said bank accounts shall be operated by ${bankNames}, ${bankAuthPartners.length === 1 ? 'who is' : 'either of whom is'} independently authorized for all bank-related transactions including the issuance and authorization of cheques, demand drafts, and any other banking instruments on behalf of the firm.`;
+    } else {
+      bankingText = `The firm shall maintain one or more banking accounts (e.g., current accounts, overdrafts, cash credit, etc.) as may be decided by the partners from time to time. The said bank accounts shall be operated by ${bankNames}, who ${bankAuthPartners.length === 1 ? 'is' : 'are jointly'} authorized for all bank-related transactions including the issuance and authorization of cheques, demand drafts, and any other banking instruments on behalf of the firm. No transaction shall be deemed valid unless signed by all the above-named authorized partners.`;
+    }
   } else if (bankOp === 'jointly') {
     const jointNames = partners.map((p, i) => {
       let sep = '';
@@ -2525,12 +2809,14 @@ function initMobileMenu() {
     const isOpen = sidebar.classList.contains('open');
     sidebar.classList.toggle('open', !isOpen);
     backdrop.classList.toggle('visible', !isOpen);
+    backdrop.classList.toggle('hidden', isOpen);
     hamburger.setAttribute('aria-expanded', !isOpen);
   }
 
   function closeMenu() {
     sidebar.classList.remove('open');
     backdrop.classList.remove('visible');
+    backdrop.classList.add('hidden');
     hamburger.setAttribute('aria-expanded', 'false');
   }
 
@@ -2634,6 +2920,18 @@ async function init() {
     });
   }
 
+  // Bank operation dropdown → update hint text
+  const bankOpSelect = document.getElementById('bankOperation');
+  if (bankOpSelect) {
+    bankOpSelect.addEventListener('change', () => {
+      updateBankOperationHint();
+      saveDraft();
+      debouncedServerSave();
+    });
+    // Set initial hint to match the default dropdown value
+    updateBankOperationHint();
+  }
+
   // Business objective AI generation
   const genObjBtn = document.getElementById('generateObjectiveBtn');
   if (genObjBtn) genObjBtn.addEventListener('click', generateBusinessObjective);
@@ -2696,7 +2994,7 @@ async function init() {
 
   // Save draft on input for non-partner fields + auto-sync + clear field errors
   document.querySelectorAll('.form-card input, .form-card select, .form-card textarea').forEach(el => {
-    if (el.closest('#partnersContainer') || el.closest('#capitalContainer') || el.closest('#profitContainer')) return;
+    if (el.closest('#partnersContainer')) return;
     if (el.closest('.partner-toolbar') || el.closest('.bulk-ocr-progress')) return;
 
     el.addEventListener('input', () => {

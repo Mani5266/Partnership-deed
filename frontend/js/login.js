@@ -1,17 +1,21 @@
 /**
  * Login / Sign-Up page logic
  * Handles tab switching, form validation, and Supabase auth.
+ * Credentials are fetched from /api/config (single source of truth).
  */
 
-(function () {
+(async function () {
   'use strict';
 
-  // ── Supabase client ────────────────────────────────────────
-  var SUPABASE_URL = 'https://kihkewnaokmimfxceqox.supabase.co';
-  var SUPABASE_ANON_KEY =
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpaGtld25hb2ttaW1meGNlcW94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5Mzg4MjYsImV4cCI6MjA5MDUxNDgyNn0._miUNQ5GqyFQLKW13p4-HGXq2yw4LimFboqPm352Vp4';
-
-  var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  // ── Fetch Supabase credentials from backend ────────────────
+  var configRes = await fetch('/api/config');
+  if (!configRes.ok) {
+    document.getElementById('errorMsg').textContent = 'Failed to load app configuration. Please refresh.';
+    document.getElementById('errorMsg').style.display = 'block';
+    return;
+  }
+  var config = await configRes.json();
+  var sb = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
 
   // ── DOM refs ───────────────────────────────────────────────
   var $ = function (id) { return document.getElementById(id); };
