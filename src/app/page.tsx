@@ -2,10 +2,12 @@
 // Renders the app shell: Sidebar + content area.
 // Switches between Generator (wizard) and History (deed grid) views
 // based on useWizardStore.currentPage — matching legacy SPA behavior.
+// Phase 8: Added ChatPanel (AI assistant) with voice + text form-filling.
 
 'use client';
 
-import React, { useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Sparkles } from 'lucide-react';
 import { Sidebar } from '@/components/Sidebar';
 import { ProgressBar, WizardTabs } from '@/components/WizardTabs';
 import { Step0Partners } from '@/components/Step0Partners';
@@ -14,6 +16,9 @@ import { Step2Clauses } from '@/components/Step2Clauses';
 import { Step3Review } from '@/components/Step3Review';
 import { DeedGrid } from '@/components/DeedGrid';
 import DetailModal from '@/components/DetailModal';
+import { ChatPanel, type ChatMessage } from '@/components/ChatPanel';
+import type { ExtractedDeedData } from '@/lib/merge';
+import type { Partner } from '@/types';
 import { useWizardStore } from '@/hooks/useWizardStore';
 import { useDeedList } from '@/hooks/useDeedList';
 import { useDeedActions } from '@/hooks/useDeedActions';
@@ -27,6 +32,9 @@ export default function HomePage() {
   const goToStep = useWizardStore((s) => s.goToStep);
   const switchPage = useWizardStore((s) => s.switchPage);
   const resetForm = useWizardStore((s) => s.resetForm);
+  const setFields = useWizardStore((s) => s.setFields);
+  const setPartners = useWizardStore((s) => s.setPartners);
+  const updateAddress = useWizardStore((s) => s.updateAddress);
 
   // ── Deed list for sidebar ──
   const {
@@ -44,7 +52,12 @@ export default function HomePage() {
   useAutoSave();
 
   // ── Detail modal state ──
-  const [modalDeedId, setModalDeedId] = React.useState<string | null>(null);
+  const [modalDeedId, setModalDeedId] = useState<string | null>(null);
+
+  // ── Chat panel state (lifted so messages persist across panel open/close) ──
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatExtractedData, setChatExtractedData] = useState<ExtractedDeedData>({});
 
   // ── Fetch deeds on mount ──
   useEffect(() => {
@@ -55,6 +68,9 @@ export default function HomePage() {
   const handleNewDeed = useCallback(() => {
     resetForm();
     switchPage('generator');
+    // Reset chat when starting a new deed
+    setChatMessages([]);
+    setChatExtractedData({});
   }, [resetForm, switchPage]);
 
   const handleEditDeed = useCallback(
@@ -89,6 +105,95 @@ export default function HomePage() {
   // ── Step navigation helpers ──
   const nextStep = useCallback(() => goToStep(currentStep + 1), [goToStep, currentStep]);
   const prevStep = useCallback(() => goToStep(currentStep - 1), [goToStep, currentStep]);
+
+  // ── Chat: handle AI-extracted data → push to Zustand store ──
+  const handleExtractedData = useCallback(
+    (data: ExtractedDeedData) => {
+      // 1. If AI returned partners, push them to the store
+      if (data.partners && Array.isArray(data.partners) && data.partners.length > 0) {
+        // Ensure minimum 2 partners — pad with defaults if needed
+        const aiPartners: Partner[] = data.partners.map((p) => ({
+          name: p.name || '',
+          relation: p.relation || 'S/O',
+          fatherName: p.fatherName || '',
+          age: p.age ?? '',
+          address: p.address || '',
+          capital: p.capital ?? 0,
+          profit: p.profit ?? 0,
+          isManagingPartner: p.isManagingPartner ?? false,
+          isBankAuthorized: p.isBankAuthorized ?? false,
+        }));
+        // Pad to minimum 2
+        while (aiPartners.length < 2) {
+          aiPartners.push({
+            name: '',
+            relation: 'S/O',
+            fatherName: '',
+            age: '',
+            address: '',
+            capital: 0,
+            profit: 0,
+            isManagingPartner: false,
+            isBankAuthorized: false,
+          });
+        }
+        setPartners(aiPartners);
+      }
+
+      // 2. Push scalar (non-partner, non-address) fields
+      const scalarFields: Partial<Record<string, unknown>> = {};
+      const scalarKeys = [
+        'businessName',
+        'businessDescriptionInput',
+        'natureOfBusiness',
+        'businessObjectives',
+        'deedDate',
+        'bankOperation',
+        'interestRate',
+        'noticePeriod',
+        'accountingYear',
+        'additionalPoints',
+        'partnershipDuration',
+        'partnershipStartDate',
+        'partnershipEndDate',
+      ] as const;
+
+      for (const key of scalarKeys) {
+        if (data[key] !== undefined && data[key] !== null) {
+          scalarFields[key] = data[key];
+        }
+      }
+
+      // 3. Push address sub-fields
+      const addrKeys = [
+        'addrDoorNo',
+        'addrBuildingName',
+        'addrArea',
+        'addrDistrict',
+        'addrState',
+        'addrPincode',
+      ] as const;
+
+      let hasAddrUpdate = false;
+      for (const key of addrKeys) {
+        if (data[key] !== undefined && data[key] !== null) {
+          scalarFields[key] = data[key];
+          hasAddrUpdate = true;
+        }
+      }
+
+      if (Object.keys(scalarFields).length > 0) {
+        setFields(scalarFields as Parameters<typeof setFields>[0]);
+      }
+
+      // 4. Recompute composed address if any address sub-field was updated
+      if (hasAddrUpdate) {
+        // Small delay to ensure setFields has applied
+        setTimeout(() => updateAddress(), 0);
+      }
+    },
+    [setFields, setPartners, updateAddress]
+  );
 
   // ── Auth loading screen ──
   if (authLoading) {
@@ -178,7 +283,64 @@ export default function HomePage() {
             </div>
           )}
         </main>
+
+        {/* ── AI Chat Panel (right side, generator view only) ── */}
+        {currentPage === 'generator' && chatOpen && (
+          <aside className="w-[360px] shrink-0 h-full border-l border-navy-100 bg-white hidden lg:block">
+            <ChatPanel
+              onExtractedData={handleExtractedData}
+              onClose={() => setChatOpen(false)}
+              messages={chatMessages}
+              setMessages={setChatMessages}
+              latestExtractedData={chatExtractedData}
+              setLatestExtractedData={setChatExtractedData}
+            />
+          </aside>
+        )}
       </div>
+
+      {/* ── AI Chat Toggle FAB (generator view only, when panel is closed) ── */}
+      {currentPage === 'generator' && !chatOpen && (
+        <button
+          onClick={() => setChatOpen(true)}
+          className="
+            fixed bottom-6 right-6 z-50
+            flex items-center gap-2 px-4 py-3
+            bg-navy-900 text-white
+            rounded-full shadow-lg
+            hover:bg-navy-800 hover:shadow-xl
+            transition-all duration-200
+            focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2
+            lg:flex
+          "
+          aria-label="Open AI Assistant"
+        >
+          <Sparkles className="w-4 h-4 text-accent" />
+          <span className="text-sm font-medium">AI Assistant</span>
+        </button>
+      )}
+
+      {/* ── Mobile Chat Panel (overlay for small screens) ── */}
+      {currentPage === 'generator' && chatOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setChatOpen(false)}
+          />
+          {/* Panel */}
+          <div className="absolute right-0 top-0 bottom-0 w-full max-w-[400px] bg-white shadow-2xl">
+            <ChatPanel
+              onExtractedData={handleExtractedData}
+              onClose={() => setChatOpen(false)}
+              messages={chatMessages}
+              setMessages={setChatMessages}
+              latestExtractedData={chatExtractedData}
+              setLatestExtractedData={setChatExtractedData}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Detail Modal */}
       <DetailModal
