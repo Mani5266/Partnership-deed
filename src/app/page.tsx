@@ -1,13 +1,13 @@
 // -- Main App Page ------------------------------------------------------------
-// Renders the app shell: Sidebar + content area.
+// Renders the app shell: Sidebar | AI Chat Panel (inline) | Main Content.
 // Switches between Generator (wizard) and History (deed grid) views
 // based on useWizardStore.currentPage — matching legacy SPA behavior.
-// Phase 8: Added ChatPanel (AI assistant) with voice + text form-filling.
+// Layout matches Networth Agent 3-column pattern:
+//   Left sidebar → Middle chat panel (toggleable) → Right form content.
 
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Sparkles } from 'lucide-react';
 import { Sidebar } from '@/components/Sidebar';
 import { ProgressBar, WizardTabs } from '@/components/WizardTabs';
 import { Step0Partners } from '@/components/Step0Partners';
@@ -49,7 +49,7 @@ export default function HomePage() {
   } = useDeedActions({ onRefresh: fetchDeeds });
 
   // ── Auto-save ──
-  useAutoSave();
+  const { saveNow } = useAutoSave();
 
   // ── Detail modal state ──
   const [modalDeedId, setModalDeedId] = useState<string | null>(null);
@@ -65,13 +65,26 @@ export default function HomePage() {
   }, [fetchDeeds]);
 
   // ── Sidebar handlers ──
-  const handleNewDeed = useCallback(() => {
+  const handleNewDeed = useCallback(async () => {
+    // Save the current deed before resetting (if there's meaningful data)
+    const state = useWizardStore.getState();
+    const hasData = state.businessName || state.partners.some((p) => p.name.trim());
+    if (hasData) {
+      try {
+        await saveNow();
+        // Refresh sidebar so the saved deed appears
+        fetchDeeds();
+      } catch {
+        // Save failed — still allow creating a new deed
+      }
+    }
+
     resetForm();
     switchPage('generator');
     // Reset chat when starting a new deed
     setChatMessages([]);
     setChatExtractedData({});
-  }, [resetForm, switchPage]);
+  }, [resetForm, switchPage, saveNow, fetchDeeds]);
 
   const handleEditDeed = useCallback(
     async (id: string) => {
@@ -96,6 +109,11 @@ export default function HomePage() {
     },
     [switchPage, fetchDeeds]
   );
+
+  // ── Toggle chat panel ──
+  const handleToggleChat = useCallback(() => {
+    setChatOpen((v) => !v);
+  }, []);
 
   // ── History grid handlers ──
   const handleViewDeed = useCallback((id: string) => {
@@ -221,8 +239,8 @@ export default function HomePage() {
         Skip to main content
       </a>
 
-      {/* App Shell */}
-      <div className="flex h-screen overflow-hidden">
+      {/* App Shell — fixed to viewport, prevents body scroll */}
+      <div className="fixed inset-0 flex overflow-hidden">
         {/* Sidebar */}
         <Sidebar
           drafts={sidebarDrafts}
@@ -230,117 +248,115 @@ export default function HomePage() {
           onEditDeed={handleEditDeed}
           onDeleteDeed={handleDeleteDeed}
           onNavigate={handleNavigate}
+          onToggleChat={handleToggleChat}
         />
 
-        {/* Content Area */}
+        {/* Main area — flex row: chat panel + form content, pinned to viewport height */}
         <main
           id="mainContent"
-          className="flex-1 overflow-y-auto bg-[var(--bg-main)] px-8 py-8 pb-12"
+          className="flex-1 flex flex-col lg:flex-row min-w-0 h-full overflow-hidden"
         >
-          {/* ── Generator View ── */}
-          {currentPage === 'generator' && (
-            <div className="max-w-[820px] mx-auto">
-              {/* Page header */}
-              <div className="mb-6">
-                <h2 className="font-display text-2xl text-navy-800 m-0 mb-1">
-                  Partnership Deed
-                </h2>
-                <p className="text-navy-500 text-base m-0">
-                  Fill in the details below to generate your deed
-                </p>
+          {/* ── AI Chat Panel (inline middle column on desktop, overlay on mobile) ── */}
+          {currentPage === 'generator' && chatOpen && (
+            <>
+              {/* Mobile overlay backdrop */}
+              <div
+                className="lg:hidden fixed inset-0 z-40 bg-black/50"
+                onClick={() => setChatOpen(false)}
+                aria-hidden="true"
+              />
+              <div
+                className="
+                  fixed inset-0 z-50
+                  lg:relative lg:inset-auto lg:z-auto
+                  lg:w-[340px] lg:min-w-[280px] lg:max-w-[380px] lg:shrink-0
+                  lg:border-r lg:border-navy-100
+                  lg:h-full lg:overflow-hidden
+                "
+              >
+                <ChatPanel
+                  onExtractedData={handleExtractedData}
+                  onClose={() => setChatOpen(false)}
+                  messages={chatMessages}
+                  setMessages={setChatMessages}
+                  latestExtractedData={chatExtractedData}
+                  setLatestExtractedData={setChatExtractedData}
+                />
               </div>
-
-              {/* Progress bar */}
-               <ProgressBar step={currentStep} />
-
-               {/* Step tabs */}
-               <WizardTabs currentStep={currentStep} onStepClick={goToStep} />
-
-              {/* Form card */}
-              <div className="bg-white rounded-[10px] border-l-[3px] border-l-accent border border-navy-100 p-6 md:p-8 shadow-card">
-                {currentStep === 0 && <Step0Partners onNext={nextStep} />}
-                {currentStep === 1 && <Step1Business onPrev={prevStep} onNext={nextStep} />}
-                {currentStep === 2 && <Step2Clauses onPrev={prevStep} onNext={nextStep} />}
-                {currentStep === 3 && <Step3Review onPrev={prevStep} />}
-              </div>
-            </div>
+            </>
           )}
 
-          {/* ── History View ── */}
-          {currentPage === 'history' && (
-            <div className="max-w-[1200px] mx-auto">
-              {/* Page header */}
-              <div className="mb-6">
-                <h2 className="font-display text-2xl text-navy-800 m-0 mb-1">
-                  Deed History
-                </h2>
-                <p className="text-navy-500 text-base m-0">
-                  View and manage your saved partnership deeds
-                </p>
-              </div>
-
-              <DeedGrid onViewDeed={handleViewDeed} />
-            </div>
-          )}
-        </main>
-
-        {/* ── AI Chat Panel (right side, generator view only) ── */}
-        {currentPage === 'generator' && chatOpen && (
-          <aside className="w-[360px] shrink-0 h-full border-l border-navy-100 bg-white hidden lg:block">
-            <ChatPanel
-              onExtractedData={handleExtractedData}
-              onClose={() => setChatOpen(false)}
-              messages={chatMessages}
-              setMessages={setChatMessages}
-              latestExtractedData={chatExtractedData}
-              setLatestExtractedData={setChatExtractedData}
-            />
-          </aside>
-        )}
-      </div>
-
-      {/* ── AI Chat Toggle FAB (generator view only, when panel is closed) ── */}
-      {currentPage === 'generator' && !chatOpen && (
-        <button
-          onClick={() => setChatOpen(true)}
-          className="
-            fixed bottom-6 right-6 z-50
-            flex items-center gap-2 px-4 py-3
-            bg-navy-900 text-white
-            rounded-full shadow-lg
-            hover:bg-navy-800 hover:shadow-xl
-            transition-all duration-200
-            focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2
-            lg:flex
-          "
-          aria-label="Open AI Assistant"
-        >
-          <Sparkles className="w-4 h-4 text-accent" />
-          <span className="text-sm font-medium">AI Assistant</span>
-        </button>
-      )}
-
-      {/* ── Mobile Chat Panel (overlay for small screens) ── */}
-      {currentPage === 'generator' && chatOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          {/* Backdrop */}
+          {/* ── Form / Content area — flex column: sticky header + scrollable form ── */}
           <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() => setChatOpen(false)}
-          />
-          {/* Panel */}
-          <div className="absolute right-0 top-0 bottom-0 w-full max-w-[400px] bg-white shadow-2xl">
-            <ChatPanel
-              onExtractedData={handleExtractedData}
-              onClose={() => setChatOpen(false)}
-              messages={chatMessages}
-              setMessages={setChatMessages}
-              latestExtractedData={chatExtractedData}
-              setLatestExtractedData={setChatExtractedData}
-            />
+            className="flex-1 min-w-0 flex flex-col overflow-hidden bg-[var(--bg-main)]"
+          >
+            {/* ── Generator View ── */}
+            {currentPage === 'generator' && (
+              <>
+                {/* Sticky header: title + progress + tabs — does NOT scroll */}
+                <div className="shrink-0 px-4 pt-6 lg:px-8 lg:pt-8">
+                  <div className="max-w-[820px] mx-auto">
+                    {/* Page header */}
+                    <div className="mb-4">
+                      <h2 className="font-display text-2xl text-navy-800 m-0 mb-1">
+                        Partnership Deed
+                      </h2>
+                      <div className="flex items-center gap-3">
+                        <p className="text-navy-500 text-base m-0">
+                          Fill in the details below to generate your deed
+                        </p>
+                        <button
+                          onClick={handleToggleChat}
+                          className="text-xs font-semibold text-accent hover:text-accent-dark whitespace-nowrap transition-colors"
+                        >
+                          {chatOpen ? 'close AI panel' : 'or fill with AI'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Progress bar */}
+                    <ProgressBar step={currentStep} />
+
+                    {/* Step tabs */}
+                    <WizardTabs currentStep={currentStep} onStepClick={goToStep} />
+                  </div>
+                </div>
+
+                {/* Scrollable form card — ONLY this part scrolls */}
+                <div className="flex-1 overflow-y-auto px-4 pb-12 lg:px-8">
+                  <div className="max-w-[820px] mx-auto">
+                    <div className="bg-white rounded-[10px] border-l-[3px] border-l-accent border border-navy-100 p-6 md:p-8 shadow-card">
+                      {currentStep === 0 && <Step0Partners onNext={nextStep} />}
+                      {currentStep === 1 && <Step1Business onPrev={prevStep} onNext={nextStep} />}
+                      {currentStep === 2 && <Step2Clauses onPrev={prevStep} onNext={nextStep} />}
+                      {currentStep === 3 && <Step3Review onPrev={prevStep} />}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* ── History View ── */}
+            {currentPage === 'history' && (
+              <div className="flex-1 overflow-y-auto px-4 py-8 lg:px-8 lg:py-8 pb-12">
+                <div className="max-w-[1200px] mx-auto">
+                  {/* Page header */}
+                  <div className="mb-6">
+                    <h2 className="font-display text-2xl text-navy-800 m-0 mb-1">
+                      Deed History
+                    </h2>
+                    <p className="text-navy-500 text-base m-0">
+                      View and manage your saved partnership deeds
+                    </p>
+                  </div>
+
+                  <DeedGrid onViewDeed={handleViewDeed} />
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        </main>
+      </div>
 
       {/* Detail Modal */}
       <DetailModal

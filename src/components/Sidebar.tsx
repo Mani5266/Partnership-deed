@@ -1,6 +1,6 @@
 // ── Sidebar Component ────────────────────────────────────────────────────────
-// OnEasy dark sidebar with logo, new deed button, draft list, nav, and logout.
-// Ported from index.html sidebar structure and layout.css styles.
+// OnEasy dark sidebar with logo, new deed button, AI fill button, draft list,
+// nav, and logout. Matches Networth Agent sidebar layout pattern.
 
 'use client';
 
@@ -15,6 +15,7 @@ interface SidebarProps {
   onEditDeed: (id: string) => void;
   onDeleteDeed: (id: string) => void;
   onNavigate: (page: 'generator' | 'history') => void;
+  onToggleChat: () => void;
 }
 
 export function Sidebar({
@@ -23,6 +24,7 @@ export function Sidebar({
   onEditDeed,
   onDeleteDeed,
   onNavigate,
+  onToggleChat,
 }: SidebarProps) {
   const { email, signOut } = useAuth();
   const currentPage = useWizardStore((s) => s.currentPage);
@@ -87,7 +89,7 @@ export function Sidebar({
           w-[280px] min-w-[280px] bg-sidebar-bg text-sidebar-text
           flex flex-col justify-between z-[100]
           md:relative md:left-0
-          fixed top-0 h-screen transition-[left] duration-300 ease
+          fixed top-0 h-full transition-[left] duration-300 ease
           ${mobileOpen ? 'left-0' : '-left-[280px]'}
         `}
       >
@@ -136,6 +138,26 @@ export function Sidebar({
               <line x1="2" y1="8" x2="14" y2="8" />
             </svg>
             New Partnership Deed
+          </button>
+
+          {/* Fill with AI Button */}
+          <button
+            onClick={() => {
+              onToggleChat();
+              setMobileOpen(false);
+            }}
+            className="
+              w-full flex items-center justify-center gap-2
+              px-5 py-2.5 rounded-sm text-sm font-medium
+              text-accent bg-accent/10 border border-accent/20
+              hover:bg-accent/20
+              transition-all duration-200 mb-6
+            "
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3l1.912 5.813a2 2 0 001.272 1.272L21 12l-5.813 1.912a2 2 0 00-1.272 1.272L12 21l-1.912-5.813a2 2 0 00-1.272-1.272L3 12l5.813-1.912a2 2 0 001.272-1.272L12 3z" />
+            </svg>
+            Fill with AI
           </button>
 
           {/* Recent Drafts */}
