@@ -48,6 +48,7 @@ const config: Config = {
           bg:      "#fefce8",
         },
         sidebar: {
+          DEFAULT: "#0f172a",
           bg:      "#0f172a",
           text:    "#f1f5f9",
           muted:   "#94a3b8",
