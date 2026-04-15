@@ -7,13 +7,13 @@
 -- Security: Full RLS — every user can only access their own data
 --
 -- What this creates:
---   1 Table:     deeds (with user_id + RLS)
+--   4 Tables:    deeds, partners, deed_documents, business_addresses
 --   1 Bucket:    deed-docs (private, 10MB, user-scoped storage policies)
---   4 Table RLS: SELECT, INSERT, UPDATE, DELETE — all scoped to auth.uid()
+--  16 Table RLS: SELECT, INSERT, UPDATE, DELETE — all scoped to auth.uid()
 --   4 Storage RLS: INSERT, SELECT, UPDATE, DELETE — all scoped to user folder
 --   1 Trigger:   auto-update updated_at on row changes
 --   1 Function:  cleanup_old_deeds() — locked down to service_role only
---   2 Indexes:   user_id, (user_id + created_at)
+--  10 Indexes:   across all tables for common queries
 --
 -- HOW TO RUN:
 --   1. Go to Supabase Dashboard > SQL Editor
@@ -147,8 +147,200 @@ CREATE POLICY "deed_delete_own"
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- STEP 8: Storage Bucket — deed-docs (private)
+-- STEP 8: Partners table — structured partner data
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Extracts the partners[] array from JSONB into a proper relational table.
+-- Enables: query by partner name, DB-level capital/profit constraints.
+
+CREATE TABLE IF NOT EXISTS public.partners (
+    id                   UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    deed_id              UUID        NOT NULL REFERENCES public.deeds(id) ON DELETE CASCADE,
+    ordinal              SMALLINT    NOT NULL,  -- 0=First Party, 1=Second Party, ...
+    name                 TEXT        NOT NULL DEFAULT '',
+    relation             TEXT        NOT NULL DEFAULT 'S/O',
+    father_name          TEXT        NOT NULL DEFAULT '',
+    age                  SMALLINT    CHECK (age IS NULL OR (age >= 0 AND age <= 150)),
+    address              TEXT        NOT NULL DEFAULT '',
+    capital_pct          NUMERIC(5,2) CHECK (capital_pct IS NULL OR (capital_pct >= 0 AND capital_pct <= 100)),
+    profit_pct           NUMERIC(5,2) CHECK (profit_pct IS NULL OR (profit_pct >= 0 AND profit_pct <= 100)),
+    is_managing_partner  BOOLEAN     NOT NULL DEFAULT false,
+    is_bank_authorized   BOOLEAN     NOT NULL DEFAULT false,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(deed_id, ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS idx_partners_deed_id
+  ON public.partners(deed_id);
+CREATE INDEX IF NOT EXISTS idx_partners_name
+  ON public.partners(name);
+CREATE INDEX IF NOT EXISTS idx_partners_deed_ordinal
+  ON public.partners(deed_id, ordinal);
+
+ALTER TABLE public.partners ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.partners FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "partners_select_own" ON public.partners;
+DROP POLICY IF EXISTS "partners_insert_own" ON public.partners;
+DROP POLICY IF EXISTS "partners_update_own" ON public.partners;
+DROP POLICY IF EXISTS "partners_delete_own" ON public.partners;
+
+CREATE POLICY "partners_select_own"
+  ON public.partners FOR SELECT TO authenticated
+  USING (deed_id IN (SELECT id FROM public.deeds WHERE user_id = auth.uid()));
+
+CREATE POLICY "partners_insert_own"
+  ON public.partners FOR INSERT TO authenticated
+  WITH CHECK (deed_id IN (SELECT id FROM public.deeds WHERE user_id = auth.uid()));
+
+CREATE POLICY "partners_update_own"
+  ON public.partners FOR UPDATE TO authenticated
+  USING (deed_id IN (SELECT id FROM public.deeds WHERE user_id = auth.uid()))
+  WITH CHECK (deed_id IN (SELECT id FROM public.deeds WHERE user_id = auth.uid()));
+
+CREATE POLICY "partners_delete_own"
+  ON public.partners FOR DELETE TO authenticated
+  USING (deed_id IN (SELECT id FROM public.deeds WHERE user_id = auth.uid()));
+
+REVOKE ALL ON public.partners FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.partners TO authenticated;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- STEP 9: Deed documents table — version history for generated files
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Each re-generate creates a new row instead of overwriting the previous file.
+-- Storage path: deeds/{user_id}/{deed_id}/v{version}/filename.docx
+
+CREATE TABLE IF NOT EXISTS public.deed_documents (
+    id            UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    deed_id       UUID        NOT NULL REFERENCES public.deeds(id) ON DELETE CASCADE,
+    user_id       UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    storage_path  TEXT        NOT NULL,
+    file_name     TEXT        NOT NULL,
+    file_size     INTEGER,
+    version       SMALLINT    NOT NULL DEFAULT 1,
+    generated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(deed_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_deed_documents_deed_id
+  ON public.deed_documents(deed_id);
+CREATE INDEX IF NOT EXISTS idx_deed_documents_user_id
+  ON public.deed_documents(user_id);
+CREATE INDEX IF NOT EXISTS idx_deed_documents_deed_version
+  ON public.deed_documents(deed_id, version DESC);
+
+ALTER TABLE public.deed_documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.deed_documents FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "deed_docs_select_own" ON public.deed_documents;
+DROP POLICY IF EXISTS "deed_docs_insert_own" ON public.deed_documents;
+DROP POLICY IF EXISTS "deed_docs_update_own" ON public.deed_documents;
+DROP POLICY IF EXISTS "deed_docs_delete_own" ON public.deed_documents;
+
+CREATE POLICY "deed_docs_select_own"
+  ON public.deed_documents FOR SELECT TO authenticated
+  USING (user_id = auth.uid());
+
+CREATE POLICY "deed_docs_insert_own"
+  ON public.deed_documents FOR INSERT TO authenticated
+  WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "deed_docs_update_own"
+  ON public.deed_documents FOR UPDATE TO authenticated
+  USING (user_id = auth.uid())
+  WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "deed_docs_delete_own"
+  ON public.deed_documents FOR DELETE TO authenticated
+  USING (user_id = auth.uid());
+
+REVOKE ALL ON public.deed_documents FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.deed_documents TO authenticated;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- STEP 10: Business addresses table — structured address with validation
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Stores the 6 address fields (doorNo, buildingName, area, district, state, pincode).
+-- full_address is auto-generated from the parts (replaces client-side composeAddress()).
+
+CREATE TABLE IF NOT EXISTS public.business_addresses (
+    id             UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    deed_id        UUID        NOT NULL REFERENCES public.deeds(id) ON DELETE CASCADE,
+    door_no        TEXT        NOT NULL DEFAULT '',
+    building_name  TEXT        NOT NULL DEFAULT '',
+    area           TEXT        NOT NULL DEFAULT '',
+    district       TEXT        NOT NULL DEFAULT '',
+    state          TEXT        NOT NULL DEFAULT '',
+    pincode        TEXT        NOT NULL DEFAULT ''
+                   CHECK (pincode = '' OR pincode ~ '^\d{6}$'),
+    full_address   TEXT        NOT NULL DEFAULT '',
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(deed_id)
+);
+
+-- Trigger function: auto-compose full_address from parts on every INSERT/UPDATE
+CREATE OR REPLACE FUNCTION public.compose_full_address()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.full_address := concat_ws(', ',
+    NULLIF(TRIM(NEW.door_no), ''),
+    NULLIF(TRIM(NEW.building_name), ''),
+    NULLIF(TRIM(NEW.area), ''),
+    NULLIF(TRIM(NEW.district), ''),
+    NULLIF(TRIM(NEW.state), ''),
+    CASE WHEN NEW.pincode ~ '^\d{6}$' THEN 'India - ' || NEW.pincode ELSE NULL END
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_compose_address ON public.business_addresses;
+CREATE TRIGGER trg_compose_address
+  BEFORE INSERT OR UPDATE ON public.business_addresses
+  FOR EACH ROW
+  EXECUTE FUNCTION public.compose_full_address();
+
+CREATE INDEX IF NOT EXISTS idx_business_addresses_deed_id
+  ON public.business_addresses(deed_id);
+CREATE INDEX IF NOT EXISTS idx_business_addresses_pincode
+  ON public.business_addresses(pincode) WHERE pincode != '';
+CREATE INDEX IF NOT EXISTS idx_business_addresses_state
+  ON public.business_addresses(state) WHERE state != '';
+
+ALTER TABLE public.business_addresses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.business_addresses FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "addr_select_own" ON public.business_addresses;
+DROP POLICY IF EXISTS "addr_insert_own" ON public.business_addresses;
+DROP POLICY IF EXISTS "addr_update_own" ON public.business_addresses;
+DROP POLICY IF EXISTS "addr_delete_own" ON public.business_addresses;
+
+CREATE POLICY "addr_select_own"
+  ON public.business_addresses FOR SELECT TO authenticated
+  USING (deed_id IN (SELECT id FROM public.deeds WHERE user_id = auth.uid()));
+
+CREATE POLICY "addr_insert_own"
+  ON public.business_addresses FOR INSERT TO authenticated
+  WITH CHECK (deed_id IN (SELECT id FROM public.deeds WHERE user_id = auth.uid()));
+
+CREATE POLICY "addr_update_own"
+  ON public.business_addresses FOR UPDATE TO authenticated
+  USING (deed_id IN (SELECT id FROM public.deeds WHERE user_id = auth.uid()))
+  WITH CHECK (deed_id IN (SELECT id FROM public.deeds WHERE user_id = auth.uid()));
+
+CREATE POLICY "addr_delete_own"
+  ON public.business_addresses FOR DELETE TO authenticated
+  USING (deed_id IN (SELECT id FROM public.deeds WHERE user_id = auth.uid()));
+
+REVOKE ALL ON public.business_addresses FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.business_addresses TO authenticated;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- STEP 11: Storage Bucket — deed-docs (private)
+-- ──────────────────────────────────────────────────────────────────────────────
 -- NOTE: If this fails due to Supabase restrictions on storage.buckets,
 -- create the bucket manually:
 --   Dashboard > Storage > New Bucket > name: "deed-docs" > Private > Create
@@ -173,7 +365,7 @@ ON CONFLICT (id) DO UPDATE SET
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- STEP 9: Storage RLS Policies — user-scoped file access
+-- STEP 12: Storage RLS Policies — user-scoped file access
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Storage path convention: deeds/{user_id}/{deed_id}/filename.docx
 --
@@ -232,7 +424,7 @@ CREATE POLICY "deed_storage_delete"
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- STEP 10: Revoke direct table access from anon role
+-- STEP 13: Revoke direct table access from anon role
 -- ─────────────────────────────────────────────────────────────────────────────
 -- The anon role should NOT have direct access to the deeds table.
 -- Only authenticated users (with a valid JWT) should be able to query it.
@@ -243,7 +435,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.deeds TO authenticated;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- STEP 11: Data Retention — cleanup function (service_role only)
+-- STEP 14: Data Retention — cleanup function (service_role only)
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SECURITY DEFINER: runs as the function owner (postgres), bypassing RLS.
 -- We REVOKE execute from anon + authenticated so only postgres/service_role
@@ -274,18 +466,45 @@ REVOKE EXECUTE ON FUNCTION cleanup_old_deeds(INTEGER) FROM authenticated;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- STEP 12: Disable realtime for the deeds table (optional but recommended)
+-- STEP 15: Disable realtime for all tables (optional but recommended)
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Partnership deeds don't need live subscriptions. Disabling realtime
 -- prevents data leaks through Supabase's realtime broadcast system.
 
--- Remove deeds from realtime publication if it was added.
--- Wrapped in DO block to suppress error if table isn't in the publication.
+-- Remove tables from realtime publication if they were added.
+-- Wrapped in DO blocks to suppress error if table isn't in the publication.
 DO $$
 BEGIN
   ALTER PUBLICATION supabase_realtime DROP TABLE public.deeds;
 EXCEPTION
-  WHEN undefined_object THEN NULL;  -- table not in publication, ignore
+  WHEN undefined_object THEN NULL;
+  WHEN OTHERS THEN NULL;
+END;
+$$;
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime DROP TABLE public.partners;
+EXCEPTION
+  WHEN undefined_object THEN NULL;
+  WHEN OTHERS THEN NULL;
+END;
+$$;
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime DROP TABLE public.deed_documents;
+EXCEPTION
+  WHEN undefined_object THEN NULL;
+  WHEN OTHERS THEN NULL;
+END;
+$$;
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime DROP TABLE public.business_addresses;
+EXCEPTION
+  WHEN undefined_object THEN NULL;
   WHEN OTHERS THEN NULL;
 END;
 $$;
@@ -295,24 +514,23 @@ $$;
 -- VERIFICATION — Run these manually after setup to confirm
 -- ═══════════════════════════════════════════════════════════════════════════════
 --
--- 1. Table exists with correct columns:
---    SELECT column_name, data_type, is_nullable, column_default
---    FROM information_schema.columns
---    WHERE table_schema = 'public' AND table_name = 'deeds'
---    ORDER BY ordinal_position;
+-- 1. All 4 tables exist:
+--    SELECT table_name FROM information_schema.tables
+--    WHERE table_schema = 'public' ORDER BY table_name;
+--    -- Should show: business_addresses, deed_documents, deeds, partners
 --
--- 2. RLS is enabled + forced:
+-- 2. RLS is enabled + forced on all tables:
 --    SELECT tablename, rowsecurity, forcerowsecurity
 --    FROM pg_tables
---    WHERE schemaname = 'public' AND tablename = 'deeds';
---    -- rowsecurity = true, forcerowsecurity = true
+--    WHERE schemaname = 'public'
+--      AND tablename IN ('deeds', 'partners', 'deed_documents', 'business_addresses');
+--    -- All: rowsecurity = true, forcerowsecurity = true
 --
--- 3. All 4 table policies exist:
---    SELECT policyname, cmd, roles
+-- 3. All 16 table policies exist (4 per table):
+--    SELECT tablename, policyname, cmd, roles
 --    FROM pg_policies
---    WHERE tablename = 'deeds' ORDER BY policyname;
---    -- Should show: deed_delete_own, deed_insert_own, deed_select_own, deed_update_own
---    -- All with roles = {authenticated}
+--    WHERE tablename IN ('deeds', 'partners', 'deed_documents', 'business_addresses')
+--    ORDER BY tablename, policyname;
 --
 -- 4. Storage bucket exists:
 --    SELECT id, name, public, file_size_limit
@@ -326,27 +544,53 @@ $$;
 --      AND policyname LIKE 'deed_storage_%'
 --    ORDER BY policyname;
 --
--- 6. Indexes exist:
---    SELECT indexname FROM pg_indexes WHERE tablename = 'deeds';
---    -- idx_deeds_user_id, idx_deeds_user_created
+-- 6. All indexes exist:
+--    SELECT tablename, indexname FROM pg_indexes
+--    WHERE tablename IN ('deeds', 'partners', 'deed_documents', 'business_addresses')
+--    ORDER BY tablename, indexname;
 --
--- 7. Anon role has NO access:
---    SELECT grantee, privilege_type
+-- 7. Anon role has NO access to any table:
+--    SELECT grantee, table_name, privilege_type
 --    FROM information_schema.role_table_grants
---    WHERE table_name = 'deeds' AND grantee = 'anon';
+--    WHERE table_name IN ('deeds', 'partners', 'deed_documents', 'business_addresses')
+--      AND grantee = 'anon';
 --    -- Should return 0 rows
+--
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- TABLE RELATIONSHIP DIAGRAM
+-- ═══════════════════════════════════════════════════════════════════════════════
+--
+--   auth.users
+--       │
+--       │ 1:N (user_id)
+--       ▼
+--   ┌──────────┐
+--   │  deeds   │  ← main table, owns all child data
+--   └──────────┘
+--       │
+--       ├── 1:N (deed_id) ──→  partners           (N partners per deed)
+--       │
+--       ├── 1:N (deed_id) ──→  deed_documents     (N versions per deed)
+--       │
+--       └── 1:1 (deed_id) ──→  business_addresses (1 address per deed)
+--
+-- ON DELETE CASCADE: deleting a deed removes its partners, documents, and address.
+-- ON DELETE CASCADE: deleting a user removes all their deeds (and cascades further).
 --
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- SECURITY SUMMARY
 -- ═══════════════════════════════════════════════════════════════════════════════
 --
 -- Layer 1 (Database - RLS):
---   - deeds table: auth.uid() = user_id on all 4 operations
---   - Policies scoped to 'authenticated' role only (anon can't even query)
---   - FORCE ROW LEVEL SECURITY enabled (even table owner respects policies)
+--   - deeds: auth.uid() = user_id on all 4 operations
+--   - partners: deed ownership check via subquery on deeds.user_id
+--   - deed_documents: auth.uid() = user_id directly
+--   - business_addresses: deed ownership check via subquery on deeds.user_id
+--   - All policies scoped to 'authenticated' role only
+--   - FORCE ROW LEVEL SECURITY enabled on all tables
 --
 -- Layer 2 (Storage - RLS):
---   - Files scoped by folder path: deeds/{user_id}/{deed_id}/filename.docx
+--   - Files scoped by folder path: deeds/{user_id}/{deed_id}/...
 --   - Only authenticated users, only their own folder
 --
 -- Layer 3 (Backend - Application):
@@ -354,10 +598,10 @@ $$;
 --   - JWT verified via supabaseAdmin.auth.getUser(token)
 --
 -- Layer 4 (Access Control):
---   - anon role revoked from deeds table entirely
+--   - anon role revoked from ALL tables
 --   - cleanup function revoked from anon + authenticated
---   - Realtime disabled for deeds table
+--   - Realtime disabled for all tables
 --
 -- ═══════════════════════════════════════════════════════════════════════════════
--- DONE. Your Partnership Deed database is production-ready.
+-- DONE. Your Partnership Deed database is production-ready (4 tables).
 -- ═══════════════════════════════════════════════════════════════════════════════

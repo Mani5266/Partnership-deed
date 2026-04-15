@@ -118,18 +118,32 @@ app.post('/generate', generateLimiter, verifyAuth, async (req, res) => {
     const bizName = (validatedData.businessName || 'Deed').replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'Deed';
     const filename = `Partnership_Deed_${bizName}.docx`;
 
-    // Upload to Supabase Storage
-    // Path: deeds/{userId}/{deedId}/filename.docx — matches storage RLS policies
+    // Upload to Supabase Storage with versioning
+    // Path: deeds/{userId}/{deedId}/v{version}/filename.docx
     const deedId = validatedData._deedId || 'unknown';
-    const storagePath = `deeds/${req.user.id}/${deedId}/${filename}`;
     let doc_url = null;
 
     try {
+      // Get the next version number for this deed
+      let version = 1;
+      if (deedId && deedId !== 'unknown') {
+        const { data: latestDoc } = await supabaseAdmin
+          .from('deed_documents')
+          .select('version')
+          .eq('deed_id', deedId)
+          .order('version', { ascending: false })
+          .limit(1)
+          .single();
+        if (latestDoc) version = latestDoc.version + 1;
+      }
+
+      const storagePath = `deeds/${req.user.id}/${deedId}/v${version}/${filename}`;
+
       const { error: uploadError } = await supabaseAdmin.storage
         .from('deed-docs')
         .upload(storagePath, buffer, {
           contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          upsert: true,
+          upsert: false,  // no overwrite — each version is a new file
         });
 
       if (uploadError) {
@@ -138,6 +152,19 @@ app.post('/generate', generateLimiter, verifyAuth, async (req, res) => {
         doc_url = storagePath;
 
         if (deedId && deedId !== 'unknown') {
+          // Insert version record into deed_documents
+          await supabaseAdmin
+            .from('deed_documents')
+            .insert({
+              deed_id: deedId,
+              user_id: req.user.id,
+              storage_path: storagePath,
+              file_name: filename,
+              file_size: buffer.length,
+              version,
+            });
+
+          // Update deeds.doc_url to point to latest version
           await supabaseAdmin
             .from('deeds')
             .update({ doc_url: storagePath })

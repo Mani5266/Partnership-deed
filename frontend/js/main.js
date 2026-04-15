@@ -62,22 +62,53 @@ async function dbUpdateDeed(id, updates) {
 }
 
 async function dbGetDeeds() {
-  const { data, error } = await supabase
+  // Try with document count join; fall back to plain query if child tables don't exist yet
+  let data, error;
+  ({ data, error } = await supabase
     .from('deeds')
-    .select('*')
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return data || [];
+    .select('*, deed_documents(count)')
+    .order('created_at', { ascending: false }));
+
+  if (error) {
+    // Fallback: child tables may not exist yet (pre-migration)
+    ({ data, error } = await supabase
+      .from('deeds')
+      .select('*')
+      .order('created_at', { ascending: false }));
+    if (error) throw error;
+    return data || [];
+  }
+
+  return (data || []).map(d => ({
+    ...d,
+    _versionCount: d.deed_documents?.[0]?.count ?? 0,
+  }));
 }
 
 async function dbGetDeedById(id) {
-  const { data, error } = await supabase
+  // Fetch the deed (required)
+  const { data: deed, error: deedErr } = await supabase
     .from('deeds')
     .select('*')
     .eq('id', id)
     .single();
-  if (error) throw error;
-  return data;
+  if (deedErr) throw deedErr;
+
+  // Fetch child tables in parallel (best-effort — tables may not exist yet)
+  deed._partners = [];
+  deed._address = null;
+  try {
+    const [partnersRes, addressRes] = await Promise.all([
+      supabase.from('partners').select('*').eq('deed_id', id).order('ordinal', { ascending: true }),
+      supabase.from('business_addresses').select('*').eq('deed_id', id).maybeSingle(),
+    ]);
+    if (!partnersRes.error) deed._partners = partnersRes.data || [];
+    if (!addressRes.error) deed._address = addressRes.data || null;
+  } catch (_) {
+    // Child tables may not exist pre-migration; proceed with payload fallback
+  }
+
+  return deed;
 }
 
 async function dbDeleteDeed(id) {
@@ -88,13 +119,105 @@ async function dbDeleteDeed(id) {
   if (error) throw error;
 }
 
-// Upsert helper: insert if no id, update if id exists
+// Upsert helper: insert if no id, update if id exists.
+// After saving the deed, also upserts partners + business address into child tables.
 async function dbSaveDeed({ id, business_name, partner1_name, partner2_name, payload }) {
+  let deed;
   if (id) {
-    return await dbUpdateDeed(id, { business_name, partner1_name, partner2_name, payload });
+    deed = await dbUpdateDeed(id, { business_name, partner1_name, partner2_name, payload });
   } else {
-    return await dbInsertDeed({ business_name, partner1_name, partner2_name, payload });
+    deed = await dbInsertDeed({ business_name, partner1_name, partner2_name, payload });
   }
+
+  // Upsert child tables in parallel (best-effort — don't block the save)
+  const deedId = deed.id;
+  try {
+    await Promise.all([
+      dbUpsertPartners(deedId, payload),
+      dbUpsertAddress(deedId, payload),
+    ]);
+  } catch (childErr) {
+    console.warn('Child table upsert failed (deed saved OK):', childErr);
+  }
+
+  return deed;
+}
+
+// ── CHILD TABLE HELPERS ─────────────────────────────────────────────────────
+
+/**
+ * Upsert partners from the payload into the `partners` table.
+ * Strategy: delete all existing partners for this deed, then bulk-insert.
+ * This is simpler and safer than per-row upsert when partners can be added/removed.
+ */
+async function dbUpsertPartners(deedId, payload) {
+  const partnerData = payload.partners;
+  if (!partnerData || !Array.isArray(partnerData) || partnerData.length === 0) return;
+
+  // Delete existing partners for this deed
+  const { error: delError } = await supabase
+    .from('partners')
+    .delete()
+    .eq('deed_id', deedId);
+  if (delError) throw delError;
+
+  // Build rows
+  const rows = partnerData.map((p, i) => ({
+    deed_id: deedId,
+    ordinal: i,
+    name: p.name || '',
+    relation: p.relation || 'S/O',
+    father_name: p.fatherName || '',
+    age: p.age ? parseInt(p.age, 10) || null : null,
+    address: p.address || '',
+    capital_pct: p.capital ? parseFloat(p.capital) || null : null,
+    profit_pct: p.profit ? parseFloat(p.profit) || null : null,
+    is_managing_partner: !!p.isManagingPartner,
+    is_bank_authorized: !!p.isBankAuthorized,
+  }));
+
+  const { error: insError } = await supabase
+    .from('partners')
+    .insert(rows);
+  if (insError) throw insError;
+}
+
+/**
+ * Upsert the business address into the `business_addresses` table.
+ * Uses Supabase upsert with onConflict on deed_id (1:1 relationship).
+ */
+async function dbUpsertAddress(deedId, payload) {
+  const row = {
+    deed_id: deedId,
+    door_no: payload.addrDoorNo || '',
+    building_name: payload.addrBuildingName || '',
+    area: payload.addrArea || '',
+    district: payload.addrDistrict || '',
+    state: payload.addrState || '',
+    pincode: payload.addrPincode || '',
+  };
+
+  const { error } = await supabase
+    .from('business_addresses')
+    .upsert(row, { onConflict: 'deed_id' });
+  if (error) throw error;
+}
+
+/**
+ * Fetch all document versions for a deed, newest first.
+ * Returns empty array if the deed_documents table doesn't exist yet.
+ */
+async function dbGetDocumentVersions(deedId) {
+  const { data, error } = await supabase
+    .from('deed_documents')
+    .select('*')
+    .eq('deed_id', deedId)
+    .order('version', { ascending: false });
+  if (error) {
+    console.warn('deed_documents query failed (table may not exist yet):', error.message);
+    return [];
+  }
+  return data || [];
 }
 
 // ── PAGE NAVIGATION ───────────────────────────────────────────────────────────
@@ -2096,11 +2219,13 @@ async function fetchDeeds() {
       const dateStr = escapeHTML(formatCardDate(d.created_at));
       const safeId = escapeHTML(d.id);
       const hasDoc = !!d.doc_url;
+      const versionCount = d._versionCount || 0;
+      const versionBadge = versionCount > 1 ? `<span class="deed-card-versions">${versionCount} versions</span>` : '';
 
       return `
         <div class="deed-card" data-deed-id="${safeId}">
           <div class="deed-card-title">M/s. ${bizName}</div>
-          <div class="deed-card-meta">${dateStr}</div>
+          <div class="deed-card-meta">${dateStr}${versionBadge}</div>
           <div class="deed-card-partners">${partnerNames}</div>
           <div class="deed-card-actions">
             ${hasDoc ? '<button class="btn btn-download" data-action="download">Download</button>' : ''}
@@ -2304,7 +2429,8 @@ async function duplicateDeed(id) {
     const payload = { ...(d.payload || {}) };
     const newName = `${d.business_name || 'Untitled'} (Copy)`;
 
-    const saved = await dbInsertDeed({
+    const saved = await dbSaveDeed({
+      id: null,
       business_name: newName,
       partner1_name: d.partner1_name || payload.partner1Name || '',
       partner2_name: d.partner2_name || payload.partner2Name || '',
@@ -2379,9 +2505,18 @@ async function viewStored(id) {
 
     details.push(['Business Name', `M/s. ${d.business_name || 'N/A'}`]);
 
-    // Show all partners
+    // Show partners — prefer child table data (_partners), fall back to payload
+    const dbPartners = d._partners || [];
     const storedPartners = p.partners || [];
-    if (storedPartners.length > 0) {
+    if (dbPartners.length > 0) {
+      dbPartners.forEach((pt, i) => {
+        const roles = [];
+        if (pt.is_managing_partner) roles.push('Managing');
+        if (pt.is_bank_authorized) roles.push('Bank Auth');
+        const roleStr = roles.length > 0 ? ` [${roles.join(', ')}]` : '';
+        details.push([`Partner ${i + 1}`, (pt.name || 'N/A') + roleStr]);
+      });
+    } else if (storedPartners.length > 0) {
       storedPartners.forEach((pt, i) => {
         const roles = [];
         if (pt.isManagingPartner) roles.push('Managing');
@@ -2404,10 +2539,22 @@ async function viewStored(id) {
     }
 
     details.push(['Nature', p.natureOfBusiness || 'N/A']);
-    details.push(['Registered Address', p.registeredAddress || 'N/A']);
 
-    // Capital & Profit
-    if (storedPartners.length > 0) {
+    // Address — prefer child table data, fall back to payload
+    const dbAddr = d._address;
+    if (dbAddr && dbAddr.full_address) {
+      details.push(['Registered Address', dbAddr.full_address]);
+    } else {
+      details.push(['Registered Address', p.registeredAddress || 'N/A']);
+    }
+
+    // Capital & Profit — prefer child table, fall back to payload
+    if (dbPartners.length > 0) {
+      const capStr = dbPartners.map((pt, i) => `P${i+1}: ${pt.capital_pct ?? 0}%`).join(' / ');
+      const profStr = dbPartners.map((pt, i) => `P${i+1}: ${pt.profit_pct ?? 0}%`).join(' / ');
+      details.push(['Capital', capStr]);
+      details.push(['Profit', profStr]);
+    } else if (storedPartners.length > 0) {
       const capStr = storedPartners.map((pt, i) => `P${i+1}: ${pt.capital || 0}%`).join(' / ');
       const profStr = storedPartners.map((pt, i) => `P${i+1}: ${pt.profit || 0}%`).join(' / ');
       details.push(['Capital', capStr]);
@@ -2421,13 +2568,64 @@ async function viewStored(id) {
     details.push(['Interest Rate', `${p.interestRate || '12'}% p.a.`]);
     details.push(['Notice Period', `${p.noticePeriod || '3'} months`]);
 
-    document.getElementById('modalTitle').textContent = `M/s. ${d.business_name || 'Deed Details'}`;
-    document.getElementById('modalBody').innerHTML = details.map(([label, value]) =>
+    // Build modal HTML
+    let bodyHtml = details.map(([label, value]) =>
       `<div class="modal-row">
         <span class="modal-row-label">${escapeHTML(label)}</span>
         <span class="modal-row-value">${escapeHTML(value)}</span>
       </div>`
     ).join('');
+
+    // Fetch document versions and render version history section
+    try {
+      const versions = await dbGetDocumentVersions(id);
+      if (versions.length > 0) {
+        bodyHtml += `<div class="modal-versions">
+          <div class="modal-versions-title">Document Versions (${versions.length})</div>
+          <div class="modal-versions-list">
+            ${versions.map(ver => {
+              const sizeKB = ver.file_size ? `${Math.round(ver.file_size / 1024)} KB` : '';
+              const genDate = ver.generated_at ? formatCardDate(ver.generated_at) : '';
+              return `<div class="modal-version-row">
+                <span class="modal-version-label">v${ver.version}</span>
+                <span class="modal-version-meta">${escapeHTML(genDate)}${sizeKB ? ` &middot; ${escapeHTML(sizeKB)}` : ''}</span>
+                <button class="btn btn-download modal-version-dl" data-storage-path="${escapeHTML(ver.storage_path)}" data-file-name="${escapeHTML(ver.file_name)}">Download</button>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }
+    } catch (verErr) {
+      console.warn('Failed to fetch document versions:', verErr);
+    }
+
+    document.getElementById('modalTitle').textContent = `M/s. ${d.business_name || 'Deed Details'}`;
+    document.getElementById('modalBody').innerHTML = bodyHtml;
+
+    // Bind version download buttons
+    document.querySelectorAll('.modal-version-dl').forEach(btn => {
+      btn.onclick = async () => {
+        const storagePath = btn.dataset.storagePath;
+        const fileName = btn.dataset.fileName;
+        try {
+          const { data: blob, error } = await supabase.storage
+            .from('deed-docs')
+            .download(storagePath);
+          if (error) throw error;
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fileName || storagePath.split('/').pop();
+          a.classList.add('hidden');
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 150);
+        } catch (dlErr) {
+          console.error('Version download failed:', dlErr);
+          showAlert('error', 'Failed to download this version.');
+        }
+      };
+    });
 
     // Bind modal footer buttons
     document.getElementById('modalRegenBtn').onclick = () => { closeModal(); regenerateDeed(id); };
@@ -2436,7 +2634,7 @@ async function viewStored(id) {
     document.getElementById('modalDupBtn').onclick = () => { closeModal(); duplicateDeed(id); };
     document.getElementById('modalDownloadBtn').onclick = () => { downloadStoredDoc(id); };
 
-    // Show/hide download button
+    // Show/hide download button (latest version)
     if (d.doc_url) {
       document.getElementById('modalDownloadBtn').classList.remove('hidden');
     } else {

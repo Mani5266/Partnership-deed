@@ -617,6 +617,18 @@
   font-size: var(--text-xs);
   color: var(--text-muted);
   margin-bottom: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.deed-card-versions {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  padding: 1px 6px;
+  border-radius: 9999px;
 }
 
 .deed-card-partners {
@@ -745,6 +757,54 @@
   text-align: right;
   max-width: 60%;
   word-break: break-word;
+}
+
+/* ── Modal: Document Version History ── */
+.modal-versions {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 2px solid var(--border-light);
+}
+
+.modal-versions-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: var(--space-3);
+}
+
+.modal-versions-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.modal-version-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-main);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm, 4px);
+  font-size: var(--text-xs);
+}
+
+.modal-version-label {
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 2.5rem;
+}
+
+.modal-version-meta {
+  flex: 1;
+  color: var(--text-muted);
+}
+
+.modal-version-dl {
+  padding: var(--space-1) var(--space-2) !important;
+  font-size: var(--text-xs) !important;
+  white-space: nowrap;
 }
 
 /* ── Utility Classes ── */
