@@ -1,14 +1,24 @@
 // ── POST /api/check-verification — Check email verification status ──────────
-// Copied from networth-agent (no changes needed)
 // Server-side check of email_confirmed_at using admin client.
+// Rate-limited by IP to prevent user enumeration.
 
 import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
 import { createSupabaseAdminClient } from '@/lib/supabase-server';
+import {
+  checkVerificationRateLimit,
+  getClientIdentifier,
+  rateLimitResponse,
+} from '@/lib/ratelimit';
 
 export async function POST(req: NextRequest) {
   try {
+    // ── Rate limit by IP ──
+    const identifier = getClientIdentifier(req);
+    const rl = await checkVerificationRateLimit.check(identifier);
+    if (!rl.success) return rateLimitResponse(rl.reset);
+
     let body: { userId?: unknown };
     try {
       body = await req.json();

@@ -78,6 +78,24 @@ export const sttRateLimit = createLimiter("stt", {
 });
 
 /**
+ * /api/reset-password — 10 requests per hour per IP.
+ * Prevents brute-forcing reset tokens.
+ */
+export const resetPasswordRateLimit = createLimiter("reset-password", {
+  requests: 10,
+  window: "1 h",
+});
+
+/**
+ * /api/check-verification — 20 requests per hour per IP.
+ * Prevents enumeration of user verification statuses.
+ */
+export const checkVerificationRateLimit = createLimiter("check-verification", {
+  requests: 20,
+  window: "1 h",
+});
+
+/**
  * /api/send-verification & /api/resend-verification — 5 requests per hour per email.
  */
 export const emailVerifyRateLimit = createLimiter("email-verify", {

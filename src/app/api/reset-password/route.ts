@@ -1,12 +1,22 @@
 // ── POST /api/reset-password — Execute password reset ───────────────────────
-// Copied from networth-agent (no changes needed)
 // Verifies token and updates password atomically.
+// Rate-limited by IP to prevent token brute-forcing.
 
 import { NextResponse } from 'next/server';
 import { verifyResetAndUpdatePassword } from '@/lib/password-reset';
+import {
+  resetPasswordRateLimit,
+  getClientIdentifier,
+  rateLimitResponse,
+} from '@/lib/ratelimit';
 
 export async function POST(request: Request) {
   try {
+    // ── Rate limit by IP ──
+    const identifier = getClientIdentifier(request);
+    const rl = await resetPasswordRateLimit.check(identifier);
+    if (!rl.success) return rateLimitResponse(rl.reset);
+
     const body = await request.json();
     const { token, password } = body ?? {};
 
